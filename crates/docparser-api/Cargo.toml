@@ -8,6 +8,12 @@ license.workspace = true
 name = "docparser-api"
 path = "src/main.rs"
 
+[features]
+default = []
+# Faster CPU matmul (platform-specific; see README).
+cpu-mkl = ["docparser-pipeline/mkl"]
+cpu-accelerate = ["docparser-pipeline/accelerate"]
+
 [dependencies]
 anyhow = "1"
 dotenvy = "0.15"

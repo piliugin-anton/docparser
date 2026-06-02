@@ -4,9 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+mkl = ["candle-core/mkl", "paddleocr-vl/mkl", "pp-doclayout-v3/mkl"]
+accelerate = ["candle-core/accelerate", "paddleocr-vl/accelerate", "pp-doclayout-v3/accelerate"]
+
 [dependencies]
 anyhow = "1"
-candle-core = "0.10"
+candle-core.workspace = true
 image = "0.25"
 paddleocr-vl = { path = "../paddleocr-vl" }
 pp-doclayout-v3 = { path = "../pp-doclayout-v3" }

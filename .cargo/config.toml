@@ -1,0 +1,4 @@
+# Tune generated code for the build host CPU (AVX2/AVX-512, etc.).
+# Override for portable artifacts: RUSTFLAGS="" cargo build --release
+[build]
+rustflags = ["-C", "target-cpu=native"]

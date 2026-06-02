@@ -14,3 +14,26 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+
+[workspace.dependencies]
+candle-core = { version = "0.10", default-features = true }
+candle-nn = { version = "0.10" }
+
+# Inference-heavy binaries: LTO + single codegen unit for hotter CPU kernels.
+# Note: `lto = "fat"` can break optional MKL linking; use `cpu-mkl` with thin LTO if needed.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.release-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+# `cargo test --release` / ignored parity tests without full LTO link time.
+[profile.release-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
