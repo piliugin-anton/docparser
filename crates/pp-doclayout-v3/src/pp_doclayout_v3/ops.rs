@@ -1,6 +1,6 @@
 //! Small tensor ops missing from Candle.
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{Result, Tensor};
 
 /// Top-k along last dimension; returns (values, indices as I64).
 pub fn topk_last_dim(scores: &Tensor, k: usize) -> Result<(Tensor, Tensor)> {
@@ -50,8 +50,8 @@ pub fn class_and_query_index(
 /// Gather along `dim` using int64 indices (PyTorch `gather` on dim 1 for batch tensors).
 pub fn gather_dim(src: &Tensor, indices: &Tensor, dim: usize) -> Result<Tensor> {
     let idx = match indices.dims() {
-        [n] => indices.clone(),
-        [1, n] => indices.squeeze(0)?,
+        [_n] => indices.clone(),
+        [1, _n] => indices.squeeze(0)?,
         [b, n] if *b == src.dims()[0] => {
             // Per-batch gather: only batch size 1 is used in this model.
             if *b != 1 {

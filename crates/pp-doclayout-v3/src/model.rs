@@ -59,8 +59,3 @@ impl LayoutRunner {
         .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
-
-pub fn detect(model_dir: &Path, image: &RgbImage) -> Result<Vec<LayoutElement>> {
-    let runner = LayoutRunner::load(model_dir, 0.5)?;
-    runner.detect(image)
-}

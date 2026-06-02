@@ -1,7 +1,7 @@
 //! PP-DocLayoutV3 full model forward (inference).
 
 use candle_core::{Device, DType, Result, Tensor, D};
-use candle_nn::{ops::sigmoid, Linear, Module, VarBuilder};
+use candle_nn::{Linear, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;
 use super::decoder::{inverse_sigmoid, Decoder};

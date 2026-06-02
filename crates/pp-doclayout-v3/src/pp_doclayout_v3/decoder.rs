@@ -1,6 +1,6 @@
 //! PP-DocLayoutV3 transformer decoder.
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{Result, Tensor};
 use candle_nn::{ops::sigmoid, Linear, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;

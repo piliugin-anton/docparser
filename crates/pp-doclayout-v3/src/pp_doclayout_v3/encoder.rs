@@ -1,6 +1,6 @@
 //! Hybrid encoder + conv backbone wrapper.
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;
@@ -12,22 +12,13 @@ use super::nn::{
 
 pub struct ConvEncoder {
     backbone: HgNetV2Backbone,
-    channel_sizes: Vec<usize>,
 }
 
 impl ConvEncoder {
     pub fn new(cfg: &PpDocLayoutV3Config, vb: VarBuilder) -> Result<Self> {
         let hg = cfg.hgnet();
         let backbone = HgNetV2Backbone::new(&hg, cfg.freeze_backbone_batch_norms, vb.pp("model"))?;
-        let channel_sizes = vec![128, 512, 1024, 2048];
-        Ok(Self {
-            backbone,
-            channel_sizes,
-        })
-    }
-
-    pub fn channel_sizes(&self) -> &[usize] {
-        &self.channel_sizes
+        Ok(Self { backbone })
     }
 
     pub fn forward(&self, pixel_values: &Tensor, _pixel_mask: &Tensor) -> Result<(Tensor, Vec<(Tensor, Tensor)>)> {
@@ -83,7 +74,6 @@ pub struct HybridEncoder {
     mask_feature_head: MaskFeatFpn,
     encoder_mask_lateral: ConvLayer,
     encoder_mask_output: EncoderMaskOutput,
-    hidden_dim: usize,
 }
 
 impl HybridEncoder {
@@ -142,7 +132,6 @@ impl HybridEncoder {
                 vb.pp("encoder_mask_lateral"),
             )?,
             encoder_mask_output: EncoderMaskOutput::new(cfg, vb.pp("encoder_mask_output"))?,
-            hidden_dim: cfg.encoder_hidden_dim,
         })
     }
 
@@ -397,7 +386,7 @@ impl AifiLayer {
     }
 
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let (b, c, h, w) = x.dims4()?;
+        let (b, _c, h, w) = x.dims4()?;
         let mut hs = x.flatten(2, 3)?.transpose(1, 2)?;
         let pos = self.pos_embed.build(h, w, x.device(), x.dtype())?;
         for layer in &self.layers {
@@ -535,13 +524,12 @@ pub struct DecoderInputProj {
 impl DecoderInputProj {
     pub fn new(cfg: &PpDocLayoutV3Config, vb: VarBuilder) -> Result<Self> {
         let mut layers = Vec::new();
-        let mut in_ch = cfg.decoder_in_channels[0];
         for i in 0..cfg.num_feature_levels {
-            if i >= cfg.decoder_in_channels.len() {
-                in_ch = cfg.d_model;
+            let in_ch = if i < cfg.decoder_in_channels.len() {
+                cfg.decoder_in_channels[i]
             } else {
-                in_ch = cfg.decoder_in_channels[i];
-            }
+                cfg.d_model
+            };
             let kernel = if i >= cfg.decoder_in_channels.len() { 3 } else { 1 };
             let stride = if i >= cfg.decoder_in_channels.len() { 2 } else { 1 };
             let cfg_conv = Conv2dConfig {
@@ -552,7 +540,6 @@ impl DecoderInputProj {
             let conv = candle_nn::conv2d_no_bias(in_ch, cfg.d_model, kernel, cfg_conv, vb.pp(format!("{i}.0")))?;
             let norm = BatchNorm2d::load(cfg.d_model, cfg.batch_norm_eps, vb.pp(format!("{i}.1")))?;
             layers.push((conv, norm));
-            in_ch = cfg.d_model;
         }
         Ok(Self { layers })
     }

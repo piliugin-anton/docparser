@@ -1,10 +1,10 @@
 //! HGNet-V2 backbone (`model.backbone.model.*`).
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{Result, Tensor};
 use candle_nn::VarBuilder;
 
 use super::config::HgNetV2Config;
-use super::nn::{activation, pad_chw, max_pool2d_ceil, ConvBnAct, FrozenConvBnAct};
+use super::nn::{pad_chw, max_pool2d_ceil, ConvBnAct, FrozenConvBnAct};
 
 pub struct HgNetV2Backbone {
     embedder: HgNetV2Embeddings,
@@ -32,7 +32,6 @@ struct HgNetV2Embeddings {
     stem2b: ConvBlock,
     stem3: ConvBlock,
     stem4: ConvBlock,
-    act: String,
 }
 
 enum ConvBlock {
@@ -85,7 +84,6 @@ impl HgNetV2Embeddings {
             stem2b: ConvBlock::new(cfg, s[1] / 2, s[1], 2, st[2], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem2b"))?,
             stem3: ConvBlock::new(cfg, s[1] * 2, s[1], 3, st[3], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem3"))?,
             stem4: ConvBlock::new(cfg, s[1], s[2], 1, st[4], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem4"))?,
-            act: cfg.hidden_act.clone(),
         })
     }
 

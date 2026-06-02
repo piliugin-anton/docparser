@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use candle_core::{DType, Device};
 use image::RgbImage;
 use crate::paddleocr_vl::PaddleOCRVLModel;
@@ -76,15 +76,4 @@ impl VlmRunner {
             .map_err(|e| anyhow::anyhow!("decode: {e}"))?;
         Ok(text.trim().to_string())
     }
-}
-
-pub fn generate(
-    model_dir: &Path,
-    device: &Device,
-    image: &RgbImage,
-    task: VlmTask,
-    max_new_tokens: usize,
-) -> Result<String> {
-    let mut runner = VlmRunner::load(model_dir, device.clone())?;
-    runner.generate(image, task, max_new_tokens)
 }

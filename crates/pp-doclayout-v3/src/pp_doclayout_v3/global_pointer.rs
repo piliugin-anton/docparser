@@ -30,7 +30,6 @@ impl GlobalPointer {
         let scale = (self.head_size as f64).sqrt();
         let logits = (&queries.matmul(&keys.transpose(1, 2)?)? / scale)?;
         let device = logits.device();
-        let seq = sequence_length as u32;
         let mut mask_data = vec![0f32; (sequence_length * sequence_length) as usize];
         for i in 0..sequence_length {
             for j in 0..sequence_length {

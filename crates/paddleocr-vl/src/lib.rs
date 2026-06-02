@@ -189,8 +189,6 @@ impl VlmModel {
     }
 }
 
-use candle_core::DType;
-
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
     docparser_candle_utils::list_safetensor_keys(model_dir)
 }
