@@ -13,12 +13,5 @@ safetensors = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-[features]
-default = []
-# Intel MKL (x86_64 Linux). Enable on docparser-api: --features cpu-mkl
-mkl = ["candle-core/mkl"]
-# Apple Accelerate (macOS).
-accelerate = ["candle-core/accelerate"]
-
 [dev-dependencies]
 docparser-test-utils = { path = "../docparser-test-utils" }

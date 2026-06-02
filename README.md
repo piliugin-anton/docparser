@@ -48,17 +48,7 @@ cp .env.example .env
 cargo run -p docparser-api --release
 ```
 
-Release builds use workspace `profile.release` (thin LTO, single codegen unit). `.cargo/config.toml` sets `target-cpu=native` for the build host. Optional faster BLAS:
-
-```bash
-# x86_64 Linux — Intel MKL matmul (longer compile; if link fails, use default build)
-cargo run -p docparser-api --release --features cpu-mkl
-
-# macOS — Accelerate
-cargo run -p docparser-api --release --features cpu-accelerate
-```
-
-Faster release links for tests: `cargo test --profile release-fast --release`. Maximum LTO (no MKL): `--profile release-lto`.
+For production CPU inference, use a release build (workspace `profile.release`: thin LTO, `codegen-units = 1`). `.cargo/config.toml` enables `target-cpu=native` for the build host. Faster test links: `cargo test --profile release-fast --release`. Stronger LTO: `--profile release-lto`.
 
 ```bash
 cargo run -p docparser-api

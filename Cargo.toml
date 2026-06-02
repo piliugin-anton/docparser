@@ -20,20 +20,20 @@ candle-core = { version = "0.10", default-features = true }
 candle-nn = { version = "0.10" }
 
 # Inference-heavy binaries: LTO + single codegen unit for hotter CPU kernels.
-# Note: `lto = "fat"` can break optional MKL linking; use `cpu-mkl` with thin LTO if needed.
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
 
+# Maximum link-time optimization (slower `cargo build`, slightly faster runtime).
 [profile.release-lto]
 inherits = "release"
 lto = "fat"
 codegen-units = 1
 
-# `cargo test --release` / ignored parity tests without full LTO link time.
+# `cargo test --release` without long LTO link.
 [profile.release-fast]
 inherits = "release"
-lto = "thin"
+lto = false
 codegen-units = 16

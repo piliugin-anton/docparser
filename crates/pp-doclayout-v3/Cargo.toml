@@ -5,11 +5,6 @@ edition.workspace = true
 license.workspace = true
 description = "PP-DocLayoutV3 layout detection (native Candle inference + safetensors weights)"
 
-[features]
-default = []
-mkl = ["docparser-candle-utils/mkl", "candle-core/mkl"]
-accelerate = ["docparser-candle-utils/accelerate", "candle-core/accelerate"]
-
 [dependencies]
 anyhow = "1"
 candle-core.workspace = true
