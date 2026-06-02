@@ -79,7 +79,7 @@ pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
     let path = model_dir.join("model.safetensors");
     let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
     let data = safetensors::SafeTensors::deserialize(&bytes)?;
-    let mut keys: Vec<String> = data.names().into_iter().cloned().collect();
+    let mut keys: Vec<String> = data.names().into_iter().map(str::to_string).collect();
     keys.sort();
     Ok(keys)
 }
