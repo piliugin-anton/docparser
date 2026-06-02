@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+dotenvy = "0.15"
 axum = { version = "0.8", features = ["multipart"] }
 docparser-download = { path = "../docparser-download" }
 docparser-pipeline = { path = "../docparser-pipeline" }

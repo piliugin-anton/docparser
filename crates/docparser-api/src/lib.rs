@@ -19,7 +19,7 @@ use tracing::info;
 
 mod config;
 
-pub use config::ApiConfig;
+pub use config::{ApiConfig, load_env_file};
 
 #[derive(Clone)]
 pub struct AppState {

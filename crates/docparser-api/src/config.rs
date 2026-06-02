@@ -1,5 +1,11 @@
 use std::path::PathBuf;
 
+/// Load `.env` from the current working directory when present.
+/// Existing environment variables are not overridden.
+pub fn load_env_file() {
+    let _ = dotenvy::dotenv();
+}
+
 pub struct ApiConfig {
     pub bind_addr: String,
     pub models_dir: PathBuf,
@@ -9,6 +15,7 @@ pub struct ApiConfig {
 
 impl Default for ApiConfig {
     fn default() -> Self {
+        load_env_file();
         Self {
             bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
             models_dir: std::env::var("MODELS_DIR")
