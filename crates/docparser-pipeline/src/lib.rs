@@ -14,9 +14,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub use doc_preprocess::{preprocess_document, DocPreprocessorConfig};
-pub use layout_merge::{merge_layout_blocks, MergeBboxesMode};
+pub use layout_merge::{
+    merge_layout_blocks, merge_layout_blocks_with_mode_fn, official_v16_merge_mode_for_label,
+    MergeBboxesMode,
+};
 pub use layout_nms::layout_nms;
-pub use markdown::{blocks_to_markdown, default_markdown_ignore_labels};
+pub use markdown::{
+    blocks_to_markdown, default_markdown_ignore_labels, official_markdown_ignore_labels,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
@@ -106,18 +111,18 @@ impl PipelineConfig {
         }
     }
 
-    /// Aligns with [docs/alignment_defaults.md](https://github.com/.../docs/alignment_defaults.md).
+    /// PaddleOCR-VL-1.6 orchestration per PaddleX `PaddleOCR-VL-1.6.yaml` and [docs/alignment_defaults.md](../../docs/alignment_defaults.md).
     pub fn official_v16() -> Self {
         Self {
             profile: PipelineProfile::OfficialV16,
             max_tokens: 4096,
-            layout_threshold: 0.5,
+            layout_threshold: 0.3,
             layout_unclip_ratio: 1.0,
-            layout_nms: false,
+            layout_nms: true,
             layout_nms_iou: 0.5,
             merge_layout_blocks: true,
-            layout_merge_bboxes_mode: MergeBboxesMode::Large,
-            markdown_ignore_labels: default_markdown_ignore_labels(),
+            layout_merge_bboxes_mode: MergeBboxesMode::Union,
+            markdown_ignore_labels: official_markdown_ignore_labels(),
             use_chart_recognition: false,
             use_seal_recognition: false,
             use_ocr_for_image_block: false,
@@ -180,10 +185,16 @@ impl DocumentPipeline {
             layout_elements = layout_nms(layout_elements, self.config.layout_nms_iou);
         }
         if self.config.merge_layout_blocks {
-            layout_elements = merge_layout_blocks(
-                layout_elements,
-                self.config.layout_merge_bboxes_mode,
-            );
+            layout_elements = match self.config.profile {
+                PipelineProfile::OfficialV16 => merge_layout_blocks_with_mode_fn(
+                    layout_elements,
+                    official_v16_merge_mode_for_label,
+                ),
+                PipelineProfile::Minimal => merge_layout_blocks(
+                    layout_elements,
+                    self.config.layout_merge_bboxes_mode,
+                ),
+            };
         }
 
         if layout_elements.is_empty() {

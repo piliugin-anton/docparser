@@ -25,17 +25,67 @@ fn related(a: [f32; 4], b: [f32; 4]) -> bool {
     overlaps(a, b) || contains(a, b) || contains(b, a)
 }
 
-/// Merge overlapping / nested boxes per `layout_merge_bboxes_mode`.
+fn merge_one_pair(mode: MergeBboxesMode, el: &LayoutElement, o: &LayoutElement) -> MergePairAction {
+    match mode {
+        MergeBboxesMode::Union => MergePairAction::KeepBoth,
+        MergeBboxesMode::Large => {
+            if area(el.bbox) >= area(o.bbox) {
+                MergePairAction::DropOther
+            } else {
+                MergePairAction::DropIncoming
+            }
+        }
+        MergeBboxesMode::Small => {
+            if area(el.bbox) <= area(o.bbox) {
+                MergePairAction::DropOther
+            } else {
+                MergePairAction::DropIncoming
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MergePairAction {
+    KeepBoth,
+    DropOther,
+    DropIncoming,
+}
+
+/// Merge mode per label from [PaddleX PaddleOCR-VL-1.6.yaml](https://github.com/PaddlePaddle/PaddleX/blob/develop/paddlex/configs/pipelines/PaddleOCR-VL-1.6.yaml).
+pub fn official_v16_merge_mode_for_label(label: &str) -> MergeBboxesMode {
+    match label {
+        "chart" | "formula" | "display_formula" | "doc_title" | "inline_formula"
+        | "paragraph_title" => MergeBboxesMode::Large,
+        _ => MergeBboxesMode::Union,
+    }
+}
+
+/// Merge overlapping / nested boxes using one mode for all elements.
 pub fn merge_layout_blocks(
     elements: Vec<LayoutElement>,
     mode: MergeBboxesMode,
 ) -> Vec<LayoutElement> {
-    if mode == MergeBboxesMode::Union || elements.is_empty() {
+    merge_layout_blocks_with_mode_fn(elements, |_| mode)
+}
+
+/// Merge overlapping / nested boxes; mode is chosen from each incoming element's label.
+pub fn merge_layout_blocks_with_mode_fn(
+    elements: Vec<LayoutElement>,
+    mode_for_label: impl Fn(&str) -> MergeBboxesMode,
+) -> Vec<LayoutElement> {
+    if elements.is_empty() {
         return elements;
     }
 
     let mut out: Vec<LayoutElement> = Vec::new();
     for el in elements {
+        let mode = mode_for_label(&el.label);
+        if mode == MergeBboxesMode::Union {
+            out.push(el);
+            continue;
+        }
+
         let mut keep = true;
         let mut i = 0;
         while i < out.len() {
@@ -44,25 +94,16 @@ pub fn merge_layout_blocks(
                 i += 1;
                 continue;
             }
-            match mode {
-                MergeBboxesMode::Large => {
-                    if area(el.bbox) >= area(o.bbox) {
-                        out.remove(i);
-                    } else {
-                        keep = false;
-                        break;
-                    }
-                }
-                MergeBboxesMode::Small => {
-                    if area(el.bbox) <= area(o.bbox) {
-                        out.remove(i);
-                    } else {
-                        keep = false;
-                        break;
-                    }
-                }
-                MergeBboxesMode::Union => {
+            match merge_one_pair(mode, &el, o) {
+                MergePairAction::KeepBoth => {
                     i += 1;
+                }
+                MergePairAction::DropOther => {
+                    out.remove(i);
+                }
+                MergePairAction::DropIncoming => {
+                    keep = false;
+                    break;
                 }
             }
         }

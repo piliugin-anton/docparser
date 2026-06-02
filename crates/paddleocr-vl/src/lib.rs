@@ -34,6 +34,9 @@ impl VlmTask {
     }
 }
 
+/// Maps a PP-DocLayoutV3 region label to the VLM prompt task.
+///
+/// See `docs/layout_labels_and_models.md` in the repo root for the full label list.
 pub fn task_for_layout_label(label: &str) -> VlmTask {
     match label {
         "table" => VlmTask::Table,
@@ -48,7 +51,9 @@ pub fn task_for_layout_label(label: &str) -> VlmTask {
     }
 }
 
-/// Whether the pipeline should run VLM on this layout label.
+/// Whether the pipeline should run VLM on this layout label (gated by profile flags).
+///
+/// See `docs/layout_labels_and_models.md` for layout-only vs recognition regions.
 pub fn should_run_vlm_for_label(
     label: &str,
     use_chart_recognition: bool,

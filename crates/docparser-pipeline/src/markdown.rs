@@ -19,7 +19,8 @@ pub fn blocks_to_markdown(blocks: &[Block], ignore_labels: &[String]) -> String 
     out
 }
 
-pub fn default_markdown_ignore_labels() -> Vec<String> {
+/// PaddleOCR-VL-1.6 / PaddleX default (`markdown_ignore_labels` in pipeline YAML).
+pub fn official_markdown_ignore_labels() -> Vec<String> {
     [
         "number",
         "footnote",
@@ -28,9 +29,15 @@ pub fn default_markdown_ignore_labels() -> Vec<String> {
         "footer",
         "footer_image",
         "aside_text",
-        "formula_number",
     ]
     .iter()
     .map(|s| (*s).to_string())
     .collect()
+}
+
+/// Legacy docparser list (includes `formula_number` in markdown output).
+pub fn default_markdown_ignore_labels() -> Vec<String> {
+    let mut labels = official_markdown_ignore_labels();
+    labels.push("formula_number".into());
+    labels
 }

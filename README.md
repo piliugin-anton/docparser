@@ -64,7 +64,7 @@ curl -s -F "file=@tests/fixtures/ocr_demo2.jpg" http://localhost:8080/v1/parse |
 | Profile | How to enable | Behavior |
 |---------|---------------|----------|
 | `minimal` | default | Legacy docparser settings (`layout_unclip_ratio=0.02`, no merge) |
-| `official_v16` | `PIPELINE_PROFILE=official_v16` | PaddleOCR-VL v1.6-style orchestration (see [docs/alignment_defaults.md](docs/alignment_defaults.md)) |
+| `official_v16` | `PIPELINE_PROFILE=official_v16` | PaddleOCR-VL v1.6 orchestration per [PaddleX YAML](https://github.com/PaddlePaddle/PaddleX/blob/develop/paddlex/configs/pipelines/PaddleOCR-VL-1.6.yaml) — see [docs/alignment_defaults.md](docs/alignment_defaults.md) |
 
 ```bash
 PIPELINE_PROFILE=official_v16 cargo run -p docparser-api
@@ -124,11 +124,14 @@ python tools/parity_gen.py --update-goldens --layout --vlm
 
 ## Alignment with official Paddle
 
+Uses the **PaddleOCR-VL-1.6** stack (`PP-DocLayoutV3` + `PaddleOCR-VL-1.6`), not the separate **PP-StructureV3** multi-model pipeline.
+
 - **Tensor parity:** HF Transformers + safetensors weights (`parity_gen.py` goldens under `tests/goldens/`).
 - **Layout:** `preprocessor_config.json`-driven resize/normalize; labels from `config.json` `id2label`.
 - **VLM:** Greedy decode; `generation_config.json` caps `max_new_tokens`; manual prompt layout matches HF `AutoProcessor` length (see slow tests).
-- **Orchestration:** `PipelineConfig::official_v16()` — unclip, merge, markdown ignore labels per [docs/alignment_defaults.md](docs/alignment_defaults.md).
-- **Not implemented:** doc orientation/unwarping (stubs error if enabled), polygon masks, Paddle `.pdiparams` runtime.
+- **Orchestration:** `PipelineConfig::official_v16()` — threshold 0.3, NMS, per-class merge, PaddleX markdown ignores — [docs/alignment_defaults.md](docs/alignment_defaults.md), [docs/paddleocr_model_alignment.md](docs/paddleocr_model_alignment.md).
+- **Layout labels & HF models:** [docs/layout_labels_and_models.md](docs/layout_labels_and_models.md).
+- **Not implemented:** doc orientation/unwarping (stubs error if enabled), polygon masks, Paddle `.pdiparams` runtime, PP-StructureV3 specialist models.
 
 ## Notes
 
