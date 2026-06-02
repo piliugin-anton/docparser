@@ -5,6 +5,9 @@ use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
 mod model;
+mod onnx;
+mod postprocess;
+mod preprocess;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutElement {
@@ -42,6 +45,7 @@ impl LayoutConfig {
 pub struct LayoutModel {
     model_dir: PathBuf,
     config: LayoutConfig,
+    runner: std::sync::Mutex<Option<model::LayoutRunner>>,
 }
 
 impl LayoutModel {
@@ -52,7 +56,22 @@ impl LayoutModel {
             bail!("missing layout weights at {}", weights.display());
         }
         let config = LayoutConfig::from_dir(&model_dir)?;
-        Ok(Self { model_dir, config })
+        Ok(Self {
+            model_dir,
+            config,
+            runner: std::sync::Mutex::new(None),
+        })
+    }
+
+    fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<model::LayoutRunner>>> {
+        let mut guard = self
+            .runner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("layout runner lock poisoned"))?;
+        if guard.is_none() {
+            *guard = Some(model::LayoutRunner::load(&self.model_dir)?);
+        }
+        Ok(guard)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -64,7 +83,8 @@ impl LayoutModel {
     }
 
     pub fn detect(&self, image: &RgbImage) -> Result<Vec<LayoutElement>> {
-        model::detect(&self.model_dir, image)
+        let guard = self.runner()?;
+        guard.as_ref().expect("runner").detect(image)
     }
 
     pub fn detect_path(&self, path: impl AsRef<Path>) -> Result<Vec<LayoutElement>> {
@@ -76,12 +96,7 @@ impl LayoutModel {
 }
 
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
-    let path = model_dir.join("model.safetensors");
-    let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    let data = safetensors::SafeTensors::deserialize(&bytes)?;
-    let mut keys: Vec<String> = data.names().into_iter().map(str::to_string).collect();
-    keys.sort();
-    Ok(keys)
+    docparser_candle_utils::list_safetensor_keys(model_dir)
 }
 
 pub fn label_name(id: i64) -> &'static str {

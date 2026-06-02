@@ -3,12 +3,15 @@ name = "pp-doclayout-v3"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "PP-DocLayoutV3 layout detection from HuggingFace safetensors (Candle)"
+description = "PP-DocLayoutV3 layout detection (Candle ONNX runtime + safetensors weights)"
 
 [dependencies]
 anyhow = "1"
 candle-core = "0.10"
+docparser-candle-utils = { path = "../docparser-candle-utils" }
 image = "0.25"
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["download-binaries", "ndarray", "tls-rustls", "std"] }
+ndarray = { version = "0.17", features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 safetensors = "0.7"

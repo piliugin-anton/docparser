@@ -28,8 +28,8 @@ Expected layout:
 
 ```
 models/
-├── PaddleOCR-VL-1.6/     # HF VLM weights + tokenizer
-└── PP-DocLayoutV3/       # HF layout safetensors + config
+├── PaddleOCR-VL-1.6/     # HF VLM weights + tokenizer (Candle safetensors)
+└── PP-DocLayoutV3/       # HF safetensors + official Paddle ONNX (`inference.onnx`)
 
 tests/fixtures/
 ├── ocr_demo2.jpg
@@ -64,8 +64,9 @@ curl -s -F "file=@tests/fixtures/ocr_demo2.jpg" http://localhost:8080/v1/parse |
 | Crate | Role |
 |-------|------|
 | `docparser-download` | Parallel HF + fixture downloader |
-| `paddleocr-vl` | VLM Candle port (HF safetensors) |
-| `pp-doclayout-v3` | Layout Candle port (HF safetensors) |
+| `docparser-candle-utils` | Shared safetensors mmap / parity helpers |
+| `paddleocr-vl` | In-tree PaddleOCR-VL Candle inference |
+| `pp-doclayout-v3` | PP-DocLayoutV3 layout (ONNX via ORT) |
 | `docparser-pipeline` | Two-stage orchestration |
 | `docparser-api` | Axum HTTP server |
 | `docparser-test-utils` | Parity test helpers |
@@ -104,6 +105,8 @@ python tools/parity_gen.py --update-goldens
 
 ## Notes
 
-- First inference loads ~1.9 GB VLM weights; expect 30–120s startup on CPU once the Candle port is complete.
-- Per-page latency depends on region count (each region runs VLM decode).
-- Layout and VLM inference modules are scaffolded; `model.rs` in each crate is where the Candle ports land.
+- First request loads ~1.9 GB VLM weights (mmap) plus layout ONNX; allow 1–3 minutes on CPU before the first `/v1/parse` completes.
+- Per-page latency depends on region count (each layout region runs a VLM decode).
+- Layout inference uses [PaddlePaddle/PP-DocLayoutV3_onnx](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_onnx) (`inference.onnx`) with HF-matching preprocess (800×800, `/255` only).
+- VLM uses vendored Candle modules under `paddleocr-vl/src/paddleocr_vl/` (from `candle-transformers` 0.10).
+- Optional: `cargo run -p docparser-download -- --include-reference` fetches HF `modeling_*.py` for porting.

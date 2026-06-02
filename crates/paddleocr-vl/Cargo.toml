@@ -8,6 +8,8 @@ description = "PaddleOCR-VL-1.6 inference from HuggingFace artifacts (Candle)"
 [dependencies]
 anyhow = "1"
 candle-core = "0.10"
+candle-nn = "0.10"
+docparser-candle-utils = { path = "../docparser-candle-utils" }
 image = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

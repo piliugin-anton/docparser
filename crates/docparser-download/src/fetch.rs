@@ -61,13 +61,26 @@ pub async fn download_all(
 
     if !vlm_only && !fixtures_only {
         let dest = models_dir.join(manifest::LAYOUT_DIR_NAME);
-        let opts = opts.clone();
+        let opts_layout = opts.clone();
         tasks.push(Box::pin(async move {
             download_repo(
                 manifest::LAYOUT_REPO,
                 &dest,
                 manifest::LAYOUT_REQUIRED,
                 manifest::LAYOUT_SIZES,
+                &opts_layout,
+            )
+            .await
+        }));
+
+        let dest_onnx = models_dir.join(manifest::LAYOUT_DIR_NAME);
+        let opts = opts.clone();
+        tasks.push(Box::pin(async move {
+            download_repo(
+                manifest::LAYOUT_ONNX_REPO,
+                &dest_onnx,
+                manifest::LAYOUT_ONNX_REQUIRED,
+                manifest::LAYOUT_ONNX_SIZES,
                 &opts,
             )
             .await

@@ -43,6 +43,12 @@ pub fn verify_models_dir(models_dir: &Path) -> Result<()> {
             bail!("missing layout artifact: {}", p.display());
         }
     }
+    for file in manifest::LAYOUT_ONNX_REQUIRED {
+        let p = layout.join(file);
+        if !p.is_file() {
+            bail!("missing layout ONNX artifact: {}", p.display());
+        }
+    }
     Ok(())
 }
 

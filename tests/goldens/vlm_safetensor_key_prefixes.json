@@ -1,8 +1,9 @@
 {
   "required_prefixes": [
-    "model.language_model.",
-    "model.vision_model.",
-    "model.multi_modal_projector."
+    "model.",
+    "visual.",
+    "mlp_AR.",
+    "lm_head."
   ],
   "metadata_allowlist": ["__metadata__"]
 }

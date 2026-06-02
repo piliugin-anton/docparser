@@ -1,19 +1,36 @@
-//! Candle port of PP-DocLayoutV3 (transformers modeling_pp_doclayout_v3.py).
-//!
-//! Inference is not implemented yet; this module is the integration point for the port.
+//! Layout detection entry point (ONNX graph + Candle ecosystem weights layout).
 
 use std::path::Path;
 
-use anyhow::bail;
+use anyhow::Result;
 use image::RgbImage;
 
-use crate::{LayoutElement, list_safetensor_keys};
+use crate::onnx::OnnxLayoutModel;
+use crate::LayoutElement;
+use docparser_candle_utils::default_onnx_layout_path;
 
-pub fn detect(model_dir: &Path, image: &RgbImage) -> Result<Vec<LayoutElement>, anyhow::Error> {
-    let _ = image;
-    let _keys = list_safetensor_keys(model_dir)?;
-    bail!(
-        "PP-DocLayoutV3 Candle inference is not implemented yet ({} tensor keys loaded from HF safetensors)",
-        _keys.len()
-    )
+pub struct LayoutRunner {
+    onnx: OnnxLayoutModel,
+}
+
+impl LayoutRunner {
+    pub fn load(model_dir: &Path) -> Result<Self> {
+        let onnx_path = default_onnx_layout_path(model_dir);
+        anyhow::ensure!(
+            onnx_path.is_file(),
+            "missing layout ONNX at {} (run docparser-download with layout ONNX)",
+            onnx_path.display()
+        );
+        let onnx = OnnxLayoutModel::load(&onnx_path)?;
+        Ok(Self { onnx })
+    }
+
+    pub fn detect(&self, image: &RgbImage) -> Result<Vec<LayoutElement>> {
+        self.onnx.detect(image)
+    }
+}
+
+pub fn detect(model_dir: &Path, image: &RgbImage) -> Result<Vec<LayoutElement>> {
+    let runner = LayoutRunner::load(model_dir)?;
+    runner.detect(image)
 }

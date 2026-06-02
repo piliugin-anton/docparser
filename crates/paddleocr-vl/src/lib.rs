@@ -6,6 +6,8 @@ use image::{DynamicImage, RgbImage};
 use serde::{Deserialize, Serialize};
 
 mod model;
+pub mod paddleocr_vl;
+mod preprocess;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -72,6 +74,7 @@ pub struct VlmModel {
     model_dir: PathBuf,
     config: VlmConfig,
     device: Device,
+    runner: std::sync::Mutex<Option<model::VlmRunner>>,
 }
 
 impl VlmModel {
@@ -86,7 +89,19 @@ impl VlmModel {
             model_dir,
             config,
             device,
+            runner: std::sync::Mutex::new(None),
         })
+    }
+
+    fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<model::VlmRunner>>> {
+        let mut guard = self
+            .runner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("vlm runner lock poisoned"))?;
+        if guard.is_none() {
+            *guard = Some(model::VlmRunner::load(&self.model_dir, self.device.clone())?);
+        }
+        Ok(guard)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -107,7 +122,11 @@ impl VlmModel {
         task: VlmTask,
         max_new_tokens: usize,
     ) -> Result<String> {
-        model::generate(&self.model_dir, &self.device, image, task, max_new_tokens)
+        let mut guard = self.runner()?;
+        guard
+            .as_mut()
+            .expect("runner initialized")
+            .generate(image, task, max_new_tokens)
     }
 
     pub fn generate_dynamic(
@@ -130,13 +149,29 @@ impl VlmModel {
             .to_rgb8();
         self.generate(&rgb, task, max_new_tokens)
     }
+
+    /// Build input token ids for parity tests (without running the model).
+    pub fn preprocess_input_ids_len(
+        &self,
+        image: &RgbImage,
+        task: VlmTask,
+    ) -> Result<usize> {
+        use preprocess::{build_input_ids, image_to_pixel_values, load_tokenizer, num_image_tokens};
+        let cfg: paddleocr_vl::Config = serde_json::from_str(&std::fs::read_to_string(
+            self.model_dir.join("config.json"),
+        )?)?;
+        let tokenizer = load_tokenizer(&self.model_dir)?;
+        let dtype = DType::F32;
+        let (pixel_values, grid_thw) = image_to_pixel_values(image, &self.device, dtype)?;
+        let _ = pixel_values;
+        let n = num_image_tokens(&grid_thw, cfg.vision_config.spatial_merge_size)?;
+        let input_ids = build_input_ids(&tokenizer, &cfg, task, n, &self.device)?;
+        Ok(input_ids.dim(1)?)
+    }
 }
 
+use candle_core::DType;
+
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
-    let path = model_dir.join("model.safetensors");
-    let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    let data = safetensors::SafeTensors::deserialize(&bytes)?;
-    let mut keys: Vec<String> = data.names().into_iter().map(str::to_string).collect();
-    keys.sort();
-    Ok(keys)
+    docparser_candle_utils::list_safetensor_keys(model_dir)
 }

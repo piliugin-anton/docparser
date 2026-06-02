@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use docparser_pipeline::{DocumentPipeline, PipelineConfig, default_model_paths};
 use docparser_test_utils::{load_golden_rel, run_slow_enabled, workspace_root};
 
@@ -19,7 +17,14 @@ fn pipeline_snapshot_bounds() {
         panic!("missing fixture");
     }
 
-    let pipeline = DocumentPipeline::from_dirs(vl, layout, PipelineConfig::default())
+    let pipeline = DocumentPipeline::from_dirs(
+        vl,
+        layout,
+        PipelineConfig {
+            max_tokens: 32,
+            ..PipelineConfig::default()
+        },
+    )
     .expect("pipeline");
 
     let result = pipeline.parse_path(&fixture).expect("parse");
