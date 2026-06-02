@@ -2,9 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use docparser_download::{
-    DownloadOptions, default_fixtures_dir, default_models_dir, download_all, verify_models_dir,
-};
+use docparser_download::{DownloadOptions, download_all, verify_models_dir};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -90,7 +88,9 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod cli_tests {
-    use super::*;
+    use std::path::PathBuf;
+
+    use docparser_download::{default_fixtures_dir, default_models_dir};
 
     #[test]
     fn default_paths() {
