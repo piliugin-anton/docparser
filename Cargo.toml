@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/docparser-download",
+    "crates/docparser-test-utils",
+    "crates/paddleocr-vl",
+    "crates/pp-doclayout-v3",
+    "crates/docparser-pipeline",
+    "crates/docparser-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"

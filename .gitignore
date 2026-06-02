@@ -1,0 +1,5 @@
+/target
+/models/
+/tests/fixtures/*.jpg
+!/tests/fixtures/.gitkeep
+.env

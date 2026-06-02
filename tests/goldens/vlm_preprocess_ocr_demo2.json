@@ -1,0 +1,6 @@
+{
+  "input_ids_len": 211,
+  "input_ids_head": [100273, 2969, 93963, 93919, 101305, 100295, 100295, 100295, 100295, 100295],
+  "prompt": "OCR:",
+  "pixel_values_corner_atol": 0.003
+}

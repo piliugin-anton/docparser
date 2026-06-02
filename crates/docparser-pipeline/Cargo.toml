@@ -1,0 +1,19 @@
+[package]
+name = "docparser-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+candle-core = "0.10"
+image = "0.25"
+paddleocr-vl = { path = "../paddleocr-vl" }
+pp-doclayout-v3 = { path = "../pp-doclayout-v3" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+docparser-test-utils = { path = "../docparser-test-utils" }

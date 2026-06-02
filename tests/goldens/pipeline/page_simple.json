@@ -1,0 +1,6 @@
+{
+  "min_blocks": 1,
+  "max_blocks": 50,
+  "required_labels": ["text"],
+  "notes": "Regenerate with RUN_SLOW=1 and tools/parity_gen.py after model download"
+}

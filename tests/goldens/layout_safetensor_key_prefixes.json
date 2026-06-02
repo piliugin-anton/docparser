@@ -1,0 +1,7 @@
+{
+  "required_prefixes": [
+    "model.backbone.",
+    "model.decoder."
+  ],
+  "metadata_allowlist": ["__metadata__"]
+}
