@@ -29,7 +29,7 @@ Expected layout:
 ```
 models/
 ├── PaddleOCR-VL-1.6/     # HF VLM weights + tokenizer (Candle safetensors)
-└── PP-DocLayoutV3/       # HF safetensors + official Paddle ONNX (`inference.onnx`)
+└── PP-DocLayoutV3/       # HF safetensors layout weights (`model.safetensors`)
 
 tests/fixtures/
 ├── ocr_demo2.jpg
@@ -66,7 +66,7 @@ curl -s -F "file=@tests/fixtures/ocr_demo2.jpg" http://localhost:8080/v1/parse |
 | `docparser-download` | Parallel HF + fixture downloader |
 | `docparser-candle-utils` | Shared safetensors mmap / parity helpers |
 | `paddleocr-vl` | In-tree PaddleOCR-VL Candle inference |
-| `pp-doclayout-v3` | PP-DocLayoutV3 layout (ONNX via ORT) |
+| `pp-doclayout-v3` | PP-DocLayoutV3 layout (Candle + safetensors) |
 | `docparser-pipeline` | Two-stage orchestration |
 | `docparser-api` | Axum HTTP server |
 | `docparser-test-utils` | Parity test helpers |
@@ -105,8 +105,8 @@ python tools/parity_gen.py --update-goldens
 
 ## Notes
 
-- First request loads ~1.9 GB VLM weights (mmap) plus layout ONNX; allow 1–3 minutes on CPU before the first `/v1/parse` completes.
+- First request loads ~1.9 GB VLM weights (mmap) plus ~130 MB layout safetensors; allow 1–3 minutes on CPU before the first `/v1/parse` completes.
 - Per-page latency depends on region count (each layout region runs a VLM decode).
-- Layout inference uses [PaddlePaddle/PP-DocLayoutV3_onnx](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_onnx) (`inference.onnx`) with HF-matching preprocess (800×800, `/255` only).
+- Layout inference uses [PaddlePaddle/PP-DocLayoutV3_safetensors](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_safetensors) via native Candle (800×800 resize, `/255`, zero mean / unit std).
 - VLM uses vendored Candle modules under `paddleocr-vl/src/paddleocr_vl/` (from `candle-transformers` 0.10).
 - Optional: `cargo run -p docparser-download -- --include-reference` fetches HF `modeling_*.py` for porting.

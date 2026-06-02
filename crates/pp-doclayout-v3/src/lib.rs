@@ -5,9 +5,9 @@ use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
 mod model;
-mod onnx;
 mod postprocess;
 mod preprocess;
+pub mod pp_doclayout_v3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutElement {

@@ -14,34 +14,29 @@ MODELS = ROOT / "models"
 
 
 def dump_layout() -> None:
-    import numpy as np
-    import onnxruntime as ort
+    from transformers import AutoImageProcessor, PPDocLayoutV3ForObjectDetection
     from PIL import Image
+    import torch
 
-    onnx_path = MODELS / "PP-DocLayoutV3" / "inference.onnx"
+    model_dir = MODELS / "PP-DocLayoutV3"
+    processor = AutoImageProcessor.from_pretrained(model_dir)
+    model = PPDocLayoutV3ForObjectDetection.from_pretrained(model_dir)
+    model.eval()
+
     image = Image.open(FIXTURES / "layout_demo.jpg").convert("RGB")
-    import cv2
-
-    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    h, w = img.shape[:2]
-    resized = cv2.resize(img, (800, 800))
-    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-    blob = (rgb.astype(np.float32) / 255.0).transpose(2, 0, 1)
-    sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-    out = sess.run(
-        None,
-        {
-            "im_shape": np.array([[800.0, 800.0]], np.float32),
-            "image": blob[np.newaxis].astype(np.float32),
-            "scale_factor": np.array([[800 / h, 800 / w]], np.float32),
-        },
-    )
-    dets = out[0]
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    target_sizes = torch.tensor([image.size[::-1]])
+    results = processor.post_process_object_detection(
+        outputs, threshold=0.5, target_sizes=target_sizes
+    )[0]
     payload = {
-        "detection_count": int((dets[:, 1] > 0.5).sum()),
-        "first_det": dets[0].tolist() if len(dets) else [],
+        "detection_count": int(len(results["scores"])),
+        "labels": [int(x) for x in results["labels"].tolist()],
+        "first_score": float(results["scores"][0]) if len(results["scores"]) else 0.0,
     }
-    path = GOLDENS / "layout_onnx_dump.json"
+    path = GOLDENS / "layout_transformers_dump.json"
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path}")
 

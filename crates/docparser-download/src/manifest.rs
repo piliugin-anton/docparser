@@ -2,7 +2,6 @@
 
 pub const VLM_REPO: &str = "PaddlePaddle/PaddleOCR-VL-1.6";
 pub const LAYOUT_REPO: &str = "PaddlePaddle/PP-DocLayoutV3_safetensors";
-pub const LAYOUT_ONNX_REPO: &str = "PaddlePaddle/PP-DocLayoutV3_onnx";
 
 pub const VLM_DIR_NAME: &str = "PaddleOCR-VL-1.6";
 pub const LAYOUT_DIR_NAME: &str = "PP-DocLayoutV3";
@@ -59,11 +58,6 @@ pub const LAYOUT_SIZES: &[(&str, u64)] = &[
     ("preprocessor_config.json", 575),
     ("inference.yml", 1_482),
 ];
-
-/// Official Paddle ONNX graph; stored beside safetensors under `LAYOUT_DIR_NAME`.
-pub const LAYOUT_ONNX_REQUIRED: &[&str] = &["inference.onnx"];
-
-pub const LAYOUT_ONNX_SIZES: &[(&str, u64)] = &[("inference.onnx", 130_502_049)];
 
 pub struct FixtureDownload {
     pub filename: &'static str,

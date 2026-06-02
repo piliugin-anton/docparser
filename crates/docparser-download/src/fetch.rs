@@ -72,19 +72,6 @@ pub async fn download_all(
             )
             .await
         }));
-
-        let dest_onnx = models_dir.join(manifest::LAYOUT_DIR_NAME);
-        let opts = opts.clone();
-        tasks.push(Box::pin(async move {
-            download_repo(
-                manifest::LAYOUT_ONNX_REPO,
-                &dest_onnx,
-                manifest::LAYOUT_ONNX_REQUIRED,
-                manifest::LAYOUT_ONNX_SIZES,
-                &opts,
-            )
-            .await
-        }));
     }
 
     if !vlm_only && !layout_only {

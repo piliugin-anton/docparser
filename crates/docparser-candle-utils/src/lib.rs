@@ -1,6 +1,6 @@
 //! Shared helpers for mmap safetensors loading and parity tensor dumps.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use candle_core::{Device, DType};
@@ -60,20 +60,4 @@ pub fn write_tensor_dumps(path: &Path, dumps: &[TensorDump]) -> Result<()> {
     let json = serde_json::to_string_pretty(dumps)?;
     std::fs::write(path, json)?;
     Ok(())
-}
-
-pub fn default_onnx_layout_path(model_dir: &Path) -> PathBuf {
-    for candidate in [
-        model_dir.join("inference.onnx"),
-        model_dir.join("model.onnx"),
-        model_dir
-            .parent()
-            .map(|p| p.join("PP-DocLayoutV3-onnx").join("PP-DocLayoutV3.onnx"))
-            .unwrap_or_default(),
-    ] {
-        if candidate.is_file() {
-            return candidate;
-        }
-    }
-    model_dir.join("inference.onnx")
 }

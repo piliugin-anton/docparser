@@ -1,27 +1,29 @@
 //! PP-DocLayoutV3 image preprocessing (800×800, rescale 1/255, zero mean / unit std).
 
 use anyhow::Result;
+use candle_core::{Device, Tensor};
 use image::{imageops::FilterType, RgbImage};
-use ndarray::{Array4, Array2};
 
 pub const TARGET_SIZE: u32 = 800;
 
 #[derive(Debug, Clone)]
 pub struct PreprocessOutput {
-    pub pixel_values: Array4<f32>,
-    pub im_shape: Array2<f32>,
-    pub scale_factor: Array2<f32>,
+    pub pixel_values: Tensor,
+    pub im_shape: Tensor,
+    pub scale_factor: Tensor,
     pub orig_width: u32,
     pub orig_height: u32,
 }
 
-pub fn preprocess(image: &RgbImage) -> Result<PreprocessOutput> {
+pub fn preprocess(image: &RgbImage, device: &Device) -> Result<PreprocessOutput> {
     let (orig_width, orig_height) = image.dimensions();
+    // Bicubic (CatmullRom); close to HF torchvision bicubic. Borderline scores on tiny images
+    // are handled by the pipeline full-image fallback when no layout boxes pass threshold.
     let resized = image::imageops::resize(
         image,
         TARGET_SIZE,
         TARGET_SIZE,
-        FilterType::Triangle,
+        FilterType::CatmullRom,
     );
 
     let mut chw = vec![0f32; (3 * TARGET_SIZE * TARGET_SIZE) as usize];
@@ -35,11 +37,15 @@ pub fn preprocess(image: &RgbImage) -> Result<PreprocessOutput> {
         }
     }
 
-    let pixel_values = Array4::from_shape_vec((1, 3, TARGET_SIZE as usize, TARGET_SIZE as usize), chw)?;
+    let pixel_values = Tensor::from_vec(
+        chw,
+        (1, 3, TARGET_SIZE as usize, TARGET_SIZE as usize),
+        device,
+    )?;
     let scale_h = TARGET_SIZE as f32 / orig_height as f32;
     let scale_w = TARGET_SIZE as f32 / orig_width as f32;
-    let im_shape = Array2::from_shape_vec((1, 2), vec![TARGET_SIZE as f32, TARGET_SIZE as f32])?;
-    let scale_factor = Array2::from_shape_vec((1, 2), vec![scale_h, scale_w])?;
+    let im_shape = Tensor::new(&[TARGET_SIZE as f32, TARGET_SIZE as f32], device)?.reshape((1, 2))?;
+    let scale_factor = Tensor::new(&[scale_h, scale_w], device)?.reshape((1, 2))?;
 
     Ok(PreprocessOutput {
         pixel_values,

@@ -13,10 +13,9 @@ fn models_available() -> bool {
     workspace_root()
         .join("models/PaddleOCR-VL-1.6/model.safetensors")
         .is_file()
-        && docparser_candle_utils::default_onnx_layout_path(
-            &workspace_root().join("models/PP-DocLayoutV3"),
-        )
-        .is_file()
+        && workspace_root()
+            .join("models/PP-DocLayoutV3/model.safetensors")
+            .is_file()
 }
 
 #[test]

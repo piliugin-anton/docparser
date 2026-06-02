@@ -102,6 +102,17 @@ impl DocumentPipeline {
         let rgb = image.to_rgb8();
 
         let mut layout_elements = self.layout.detect(&rgb)?;
+        if layout_elements.is_empty() {
+            // Small or atypical pages may yield no boxes above the layout threshold; run VLM on the full image.
+            layout_elements.push(pp_doclayout_v3::LayoutElement {
+                id: 0,
+                order: Some(0),
+                label: "text".into(),
+                score: 1.0,
+                bbox: [0.0, 0.0, width as f32, height as f32],
+                text: None,
+            });
+        }
         layout_elements.sort_by(|a, b| {
             a.order
                 .unwrap_or(usize::MAX)
