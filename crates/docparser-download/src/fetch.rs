@@ -227,6 +227,17 @@ async fn download_one(
     Ok(())
 }
 
+/// Temp path beside `dest` that keeps the full basename (e.g. `tokenizer.json.part`).
+/// `dest.with_extension("part")` would collapse `tokenizer.json` and `tokenizer.model`
+/// both to `tokenizer.part` and break parallel downloads.
+fn partial_path(dest: &Path) -> PathBuf {
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "download".into());
+    dest.with_file_name(format!("{name}.part"))
+}
+
 async fn stream_to_file(
     client: &Client,
     url: &str,
@@ -234,7 +245,7 @@ async fn stream_to_file(
     total_hint: Option<u64>,
     pb: Option<&ProgressBar>,
 ) -> Result<()> {
-    let part = dest.with_extension("part");
+    let part = partial_path(dest);
     let mut req = client.get(url);
     if let Some(token) = std::env::var("HF_TOKEN")
         .ok()
@@ -296,4 +307,19 @@ pub fn default_models_dir() -> PathBuf {
 
 pub fn default_fixtures_dir() -> PathBuf {
     PathBuf::from("tests/fixtures")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_path_keeps_distinct_basenames() {
+        let dir = Path::new("models/PaddleOCR-VL-1.6");
+        let json = partial_path(&dir.join("tokenizer.json"));
+        let model = partial_path(&dir.join("tokenizer.model"));
+        assert_eq!(json, dir.join("tokenizer.json.part"));
+        assert_eq!(model, dir.join("tokenizer.model.part"));
+        assert_ne!(json, model);
+    }
 }
