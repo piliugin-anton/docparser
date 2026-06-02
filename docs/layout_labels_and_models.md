@@ -47,13 +47,12 @@ Logic in `crates/paddleocr-vl/src/lib.rs` (`task_for_layout_label`, `should_run_
 
 | Label group | `VlmTask` | Prompt prefix | VLM runs? |
 |-------------|-----------|---------------|-----------|
-| Text-like: `abstract`, `algorithm`, `content`, `doc_title`, `paragraph_title`, `reference`, `reference_content`, `figure_title`, `text`, `text_block`, `vision_footnote`, `footnote`, `number`, `formula_number`, `vertical_text` | `Ocr` | `OCR:` | Yes, except layout-only rows below |
+| Text-like: `abstract`, `algorithm`, `content`, `doc_title`, `paragraph_title`, `reference`, `reference_content`, `figure_title`, `text`, `text_block`, `vision_footnote`, `footnote`, `number`, `formula_number`, `header`, `footer`, `aside_text`, `vertical_text` | `Ocr` | `OCR:` | Yes |
 | `table` | `Table` | `Table Recognition:` | Yes |
 | `formula`, `display_formula`, `inline_formula` | `Formula` | `Formula Recognition:` | Yes |
 | `chart` | `Chart` | `Chart Recognition:` | Only if `use_chart_recognition` |
 | `seal` | `Seal` | `Seal Recognition:` | Only if `use_seal_recognition` |
 | `image`, `header_image`, `footer_image` | `Ocr` | `OCR:` | Only if `use_ocr_for_image_block` |
-| `header`, `footer`, `aside_text`, `number`, `footnote`, `formula_number` | `Ocr` (unused) | — | **No** — detected only |
 
 Official profile sets `use_chart_recognition`, `use_seal_recognition`, and `use_ocr_for_image_block` to **false** (same as PaddleX defaults).
 

@@ -53,7 +53,8 @@ pub fn task_for_layout_label(label: &str) -> VlmTask {
 
 /// Whether the pipeline should run VLM on this layout label (gated by profile flags).
 ///
-/// See `docs/layout_labels_and_models.md` for layout-only vs recognition regions.
+/// Matches PaddleX `paddleocr_vl/pipeline.py`: image-like labels skip VLM unless
+/// enabled; `markdown_ignore_labels` only affects Markdown assembly, not recognition.
 pub fn should_run_vlm_for_label(
     label: &str,
     use_chart_recognition: bool,
@@ -64,7 +65,6 @@ pub fn should_run_vlm_for_label(
         "chart" => use_chart_recognition,
         "seal" => use_seal_recognition,
         "image" | "header_image" | "footer_image" => use_ocr_for_image_block,
-        "header" | "footer" | "aside_text" | "number" | "footnote" | "formula_number" => false,
         _ => true,
     }
 }

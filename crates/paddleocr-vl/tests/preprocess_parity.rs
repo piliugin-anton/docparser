@@ -13,8 +13,14 @@ fn task_prompt_mapping() {
 
 #[test]
 fn should_run_vlm_gating() {
+    assert!(paddleocr_vl::should_run_vlm_for_label(
+        "footnote",
+        false,
+        false,
+        false
+    ));
     assert!(!paddleocr_vl::should_run_vlm_for_label(
-        "header",
+        "chart",
         false,
         false,
         false
