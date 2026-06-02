@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use docparser_download::verify_models_dir;
-use docparser_pipeline::{DocumentPipeline, PipelineConfig, default_model_paths};
+use docparser_pipeline::{DocumentPipeline, default_model_paths};
 use image::ImageFormat;
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -51,15 +51,9 @@ pub async fn run(config: ApiConfig) -> Result<()> {
     )?;
 
     let (vl_dir, layout_dir) = default_model_paths(&config.models_dir);
-    let pipeline = DocumentPipeline::from_dirs(
-        vl_dir,
-        layout_dir,
-        PipelineConfig {
-            max_tokens: config.max_tokens,
-            include_markdown: true,
-            ..Default::default()
-        },
-    )?;
+    let mut pipeline_cfg = config.pipeline.clone();
+    pipeline_cfg.max_tokens = config.max_tokens;
+    let pipeline = DocumentPipeline::from_dirs(vl_dir, layout_dir, pipeline_cfg)?;
     info!("models loaded from {}", config.models_dir.display());
 
     let state = AppState {

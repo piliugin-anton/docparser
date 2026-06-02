@@ -1,19 +1,28 @@
 //! HF `post_process_object_detection` (boxes + reading order, no mask polygons).
 
+use std::collections::HashMap;
+
 use candle_core::{Result, Tensor, D};
 use candle_nn::ops::sigmoid;
 
 use crate::pp_doclayout_v3::ops::{class_and_query_index, gather_dim, get_order_seqs, topk_last_dim};
 use crate::pp_doclayout_v3::ModelOutputs;
-use crate::{label_name, LayoutElement};
-
-const THRESHOLD: f32 = 0.5;
+use crate::LayoutElement;
 
 pub fn post_process_object_detection(
     outputs: &ModelOutputs,
     orig_height: u32,
     orig_width: u32,
+    id2label: &HashMap<u32, String>,
+    threshold: f32,
 ) -> Result<Vec<LayoutElement>> {
+    let label_name = |id: i64| -> String {
+        id2label
+            .get(&(id as u32))
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string())
+    };
+
     let boxes = &outputs.pred_boxes;
     let logits = &outputs.logits;
 
@@ -49,14 +58,14 @@ pub fn post_process_object_detection(
     let mut elements = Vec::new();
     for i in 0..scores_v[0].len() {
         let score = scores_v[0][i];
-        if score < THRESHOLD {
+        if score < threshold {
             continue;
         }
         let b = &boxes_v[0][i];
         elements.push(LayoutElement {
             id: 0,
             order: Some(order_v[0][i] as usize),
-            label: label_name(labels_v[0][i]).to_string(),
+            label: label_name(labels_v[0][i]),
             score,
             bbox: [b[0], b[1], b[2], b[3]],
             text: None,

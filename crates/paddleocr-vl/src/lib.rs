@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 mod model;
 pub mod paddleocr_vl;
 mod preprocess;
+pub mod processor;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,7 +40,27 @@ pub fn task_for_layout_label(label: &str) -> VlmTask {
         "display_formula" | "inline_formula" | "formula" => VlmTask::Formula,
         "chart" => VlmTask::Chart,
         "seal" => VlmTask::Seal,
+        "vertical_text" | "text" | "text_block" | "content" | "doc_title" | "paragraph_title"
+        | "abstract" | "reference" | "reference_content" | "figure_title" | "algorithm"
+        | "vision_footnote" | "number" | "footnote" | "formula_number" => VlmTask::Ocr,
+        "image" | "header_image" | "footer_image" => VlmTask::Ocr,
         _ => VlmTask::Ocr,
+    }
+}
+
+/// Whether the pipeline should run VLM on this layout label.
+pub fn should_run_vlm_for_label(
+    label: &str,
+    use_chart_recognition: bool,
+    use_seal_recognition: bool,
+    use_ocr_for_image_block: bool,
+) -> bool {
+    match label {
+        "chart" => use_chart_recognition,
+        "seal" => use_seal_recognition,
+        "image" | "header_image" | "footer_image" => use_ocr_for_image_block,
+        "header" | "footer" | "aside_text" | "number" | "footnote" | "formula_number" => false,
+        _ => true,
     }
 }
 
@@ -156,17 +177,15 @@ impl VlmModel {
         image: &RgbImage,
         task: VlmTask,
     ) -> Result<usize> {
-        use preprocess::{build_input_ids, image_to_pixel_values, load_tokenizer, num_image_tokens};
-        let cfg: paddleocr_vl::Config = serde_json::from_str(&std::fs::read_to_string(
-            self.model_dir.join("config.json"),
-        )?)?;
-        let tokenizer = load_tokenizer(&self.model_dir)?;
-        let dtype = DType::F32;
-        let (pixel_values, grid_thw) = image_to_pixel_values(image, &self.device, dtype)?;
-        let _ = pixel_values;
-        let n = num_image_tokens(&grid_thw, cfg.vision_config.spatial_merge_size)?;
-        let input_ids = build_input_ids(&tokenizer, &cfg, task, n, &self.device)?;
-        Ok(input_ids.dim(1)?)
+        Ok(self.preprocess_input_ids(image, task)?.len())
+    }
+
+    pub fn preprocess_input_ids(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<u32>> {
+        let guard = self.runner()?;
+        guard
+            .as_ref()
+            .expect("runner")
+            .build_input_ids_vec(image, task)
     }
 }
 

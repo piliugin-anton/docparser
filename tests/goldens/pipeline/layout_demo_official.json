@@ -1,0 +1,6 @@
+{
+  "block_count": 0,
+  "blocks": [],
+  "markdown_preview": "",
+  "notes": "Regenerate: python tools/parity_gen.py --update-goldens --e2e (requires paddleocr)"
+}

@@ -75,6 +75,24 @@ impl PpDocLayoutV3Config {
         32
     }
 
+    pub fn label_for_id(&self, id: i64) -> String {
+        self.id2label
+            .get(&id.to_string())
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    pub fn id2label_map(&self) -> std::collections::HashMap<u32, String> {
+        self.id2label
+            .iter()
+            .filter_map(|(k, v)| {
+                let id: u32 = k.parse().ok()?;
+                let name = v.as_str()?.to_string();
+                Some((id, name))
+            })
+            .collect()
+    }
+
     pub fn hgnet(&self) -> HgNetV2Config {
         HgNetV2Config::arch_l()
     }

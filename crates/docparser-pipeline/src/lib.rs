@@ -1,12 +1,22 @@
+mod doc_preprocess;
+mod layout_merge;
+mod layout_nms;
+mod markdown;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use candle_core::Device;
 use image::{DynamicImage, GenericImageView, RgbImage};
-use paddleocr_vl::{VlmModel, task_for_layout_label};
+use paddleocr_vl::{should_run_vlm_for_label, task_for_layout_label, VlmModel};
 use pp_doclayout_v3::LayoutModel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+pub use doc_preprocess::{preprocess_document, DocPreprocessorConfig};
+pub use layout_merge::{merge_layout_blocks, MergeBboxesMode};
+pub use layout_nms::layout_nms;
+pub use markdown::{blocks_to_markdown, default_markdown_ignore_labels};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
@@ -32,6 +42,7 @@ pub struct ParseMetadata {
     pub layout_model: String,
     pub processing_ms: u64,
     pub device: String,
+    pub pipeline_profile: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,19 +56,80 @@ pub struct DocumentParseResult {
     pub metadata: ParseMetadata,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PipelineProfile {
+    Minimal,
+    OfficialV16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineConfig {
+    pub profile: PipelineProfile,
     pub max_tokens: usize,
-    pub unclip_ratio: f32,
+    pub layout_threshold: f32,
+    pub layout_unclip_ratio: f32,
+    pub layout_nms: bool,
+    pub layout_nms_iou: f32,
+    pub merge_layout_blocks: bool,
+    pub layout_merge_bboxes_mode: MergeBboxesMode,
+    pub markdown_ignore_labels: Vec<String>,
+    pub use_chart_recognition: bool,
+    pub use_seal_recognition: bool,
+    pub use_ocr_for_image_block: bool,
     pub include_markdown: bool,
+    pub doc_preprocess: DocPreprocessorConfig,
 }
 
 impl Default for PipelineConfig {
     fn default() -> Self {
+        Self::minimal()
+    }
+}
+
+impl PipelineConfig {
+    pub fn minimal() -> Self {
         Self {
+            profile: PipelineProfile::Minimal,
             max_tokens: 4096,
-            unclip_ratio: 0.02,
+            layout_threshold: 0.5,
+            layout_unclip_ratio: 0.02,
+            layout_nms: false,
+            layout_nms_iou: 0.5,
+            merge_layout_blocks: false,
+            layout_merge_bboxes_mode: MergeBboxesMode::Union,
+            markdown_ignore_labels: default_markdown_ignore_labels(),
+            use_chart_recognition: false,
+            use_seal_recognition: false,
+            use_ocr_for_image_block: false,
             include_markdown: true,
+            doc_preprocess: DocPreprocessorConfig::default(),
+        }
+    }
+
+    /// Aligns with [docs/alignment_defaults.md](https://github.com/.../docs/alignment_defaults.md).
+    pub fn official_v16() -> Self {
+        Self {
+            profile: PipelineProfile::OfficialV16,
+            max_tokens: 4096,
+            layout_threshold: 0.5,
+            layout_unclip_ratio: 1.0,
+            layout_nms: false,
+            layout_nms_iou: 0.5,
+            merge_layout_blocks: true,
+            layout_merge_bboxes_mode: MergeBboxesMode::Large,
+            markdown_ignore_labels: default_markdown_ignore_labels(),
+            use_chart_recognition: false,
+            use_seal_recognition: false,
+            use_ocr_for_image_block: false,
+            include_markdown: true,
+            doc_preprocess: DocPreprocessorConfig::default(),
+        }
+    }
+
+    pub fn pipeline_version_string(&self) -> String {
+        match self.profile {
+            PipelineProfile::Minimal => "v1".into(),
+            PipelineProfile::OfficialV16 => "v1.6-official".into(),
         }
     }
 }
@@ -81,7 +153,8 @@ impl DocumentPipeline {
         let layout_dir = layout_dir.as_ref().to_path_buf();
 
         let vlm = VlmModel::from_dir(&vlm_dir, device)?;
-        let layout = LayoutModel::from_dir(&layout_dir)?;
+        let layout =
+            LayoutModel::from_dir_with_threshold(&layout_dir, config.layout_threshold)?;
 
         Ok(Self {
             vl_model_name: vlm_dir.display().to_string(),
@@ -98,12 +171,23 @@ impl DocumentPipeline {
         filename: Option<String>,
     ) -> Result<DocumentParseResult> {
         let started = std::time::Instant::now();
+        let image = preprocess_document(image, &self.config.doc_preprocess)?;
         let (width, height) = image.dimensions();
         let rgb = image.to_rgb8();
 
         let mut layout_elements = self.layout.detect(&rgb)?;
+        if self.config.layout_nms {
+            layout_elements = layout_nms(layout_elements, self.config.layout_nms_iou);
+        }
+        if self.config.merge_layout_blocks {
+            layout_elements = merge_layout_blocks(
+                layout_elements,
+                self.config.layout_merge_bboxes_mode,
+            );
+        }
+
         if layout_elements.is_empty() {
-            // Small or atypical pages may yield no boxes above the layout threshold; run VLM on the full image.
+            tracing::debug!("no layout boxes above threshold; using full-image VLM fallback");
             layout_elements.push(pp_doclayout_v3::LayoutElement {
                 id: 0,
                 order: Some(0),
@@ -122,9 +206,18 @@ impl DocumentPipeline {
 
         let mut blocks = Vec::new();
         for el in &layout_elements {
-            let crop = crop_bbox(&rgb, el.bbox, self.config.unclip_ratio);
-            let task = task_for_layout_label(&el.label);
-            let content = self.vlm.generate(&crop, task, self.config.max_tokens)?;
+            let content = if should_run_vlm_for_label(
+                &el.label,
+                self.config.use_chart_recognition,
+                self.config.use_seal_recognition,
+                self.config.use_ocr_for_image_block,
+            ) {
+                let crop = crop_bbox(&rgb, el.bbox, self.config.layout_unclip_ratio);
+                let task = task_for_layout_label(&el.label);
+                self.vlm.generate(&crop, task, self.config.max_tokens)?
+            } else {
+                String::new()
+            };
             blocks.push(Block {
                 id: el.id,
                 order: el.order,
@@ -136,7 +229,10 @@ impl DocumentPipeline {
         }
 
         let markdown = if self.config.include_markdown {
-            Some(blocks_to_markdown(&blocks))
+            Some(blocks_to_markdown(
+                &blocks,
+                &self.config.markdown_ignore_labels,
+            ))
         } else {
             None
         };
@@ -149,7 +245,7 @@ impl DocumentPipeline {
                 height,
                 format: "rgb".into(),
             },
-            pipeline_version: "v1".into(),
+            pipeline_version: self.config.pipeline_version_string(),
             stages: vec![
                 "pp_doclayout_v3".into(),
                 "paddleocr_vl_1.6".into(),
@@ -161,6 +257,7 @@ impl DocumentPipeline {
                 layout_model: self.layout_model_name.clone(),
                 processing_ms: started.elapsed().as_millis() as u64,
                 device: "cpu".into(),
+                pipeline_profile: format!("{:?}", self.config.profile),
             },
         })
     }
@@ -192,34 +289,6 @@ fn crop_bbox(image: &RgbImage, bbox: [f32; 4], unclip_ratio: f32) -> RgbImage {
         y2.saturating_sub(y1).max(1),
     )
     .to_image()
-}
-
-fn blocks_to_markdown(blocks: &[Block]) -> String {
-    const SKIP: &[&str] = &[
-        "number",
-        "footnote",
-        "header",
-        "header_image",
-        "footer",
-        "footer_image",
-        "aside_text",
-        "formula_number",
-    ];
-
-    let mut out = String::new();
-    for block in blocks {
-        if SKIP.contains(&block.label.as_str()) {
-            continue;
-        }
-        if !block.content.is_empty() {
-            out.push_str(&block.content);
-            if !block.content.ends_with('\n') {
-                out.push('\n');
-            }
-            out.push('\n');
-        }
-    }
-    out
 }
 
 pub fn default_model_paths(base: impl AsRef<Path>) -> (PathBuf, PathBuf) {

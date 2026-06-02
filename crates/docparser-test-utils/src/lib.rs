@@ -36,3 +36,31 @@ pub fn load_golden_rel(rel: &str) -> Value {
             .expect("golden path utf8"),
     )
 }
+
+/// Element-wise comparison with absolute tolerance (scores, bboxes).
+pub fn assert_slice_near(a: &[f32], b: &[f32], atol: f32) {
+    assert_eq!(a.len(), b.len(), "length mismatch: {} vs {}", a.len(), b.len());
+    for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+        let diff = (x - y).abs();
+        assert!(diff <= atol, "index {i}: {x} vs {y}, |diff|={diff} > atol {atol}");
+    }
+}
+
+pub fn assert_input_ids_eq(actual: &[u32], golden: &Value) {
+    let expected: Vec<u32> = golden["input_ids"]
+        .as_array()
+        .expect("golden input_ids array")
+        .iter()
+        .map(|v| v.as_u64().expect("token id") as u32)
+        .collect();
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "input_ids length {} vs {}",
+        actual.len(),
+        expected.len()
+    );
+    for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(a, e, "input_ids mismatch at index {i}: {a} vs {e}");
+    }
+}
