@@ -35,12 +35,14 @@ pub async fn download_all(
     include_reference: bool,
     vlm_only: bool,
     layout_only: bool,
+    doc_prep_only: bool,
     fixtures_only: bool,
     opts: &DownloadOptions,
 ) -> Result<()> {
     let mut tasks: Vec<BoxFuture<'static, Result<()>>> = Vec::new();
+    let full = !vlm_only && !layout_only && !fixtures_only && !doc_prep_only;
 
-    if !layout_only && !fixtures_only {
+    if vlm_only || full {
         let mut vlm_files: Vec<&'static str> = manifest::VLM_REQUIRED.to_vec();
         if include_reference {
             vlm_files.extend(manifest::VLM_REFERENCE);
@@ -59,7 +61,7 @@ pub async fn download_all(
         }));
     }
 
-    if !vlm_only && !fixtures_only {
+    if layout_only || full {
         let dest = models_dir.join(manifest::LAYOUT_DIR_NAME);
         let opts_layout = opts.clone();
         tasks.push(Box::pin(async move {
@@ -74,7 +76,34 @@ pub async fn download_all(
         }));
     }
 
-    if !vlm_only && !layout_only {
+    if doc_prep_only || full {
+        let dest = models_dir.join(manifest::DOC_ORI_DIR_NAME);
+        let opts_doc = opts.clone();
+        tasks.push(Box::pin(async move {
+            download_repo(
+                manifest::DOC_ORI_REPO,
+                &dest,
+                manifest::DOC_ORI_REQUIRED,
+                manifest::DOC_ORI_SIZES,
+                &opts_doc,
+            )
+            .await
+        }));
+        let dest = models_dir.join(manifest::UVDOC_DIR_NAME);
+        let opts_uv = opts.clone();
+        tasks.push(Box::pin(async move {
+            download_repo(
+                manifest::UVDOC_REPO,
+                &dest,
+                manifest::UVDOC_REQUIRED,
+                manifest::UVDOC_SIZES,
+                &opts_uv,
+            )
+            .await
+        }));
+    }
+
+    if !vlm_only && !layout_only && !doc_prep_only {
         let fixtures_dir = fixtures_dir.to_path_buf();
         let opts = opts.clone();
         tasks.push(Box::pin(async move {

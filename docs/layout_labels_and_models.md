@@ -6,7 +6,9 @@ PP-DocLayoutV3 emits **one class label per detected region**. docparser does **n
 
 ```mermaid
 flowchart LR
-  image[DocumentImage] --> layout[PP-DocLayoutV3]
+  image[DocumentImage] --> ori[PP-LCNet_doc_ori]
+  ori --> uv[UVDoc]
+  uv --> layout[PP-DocLayoutV3]
   layout --> regions[LabeledRegions]
   regions --> gate[should_run_vlm_for_label]
   gate -->|yes| vlm[PaddleOCR-VL-1.6]
@@ -16,6 +18,8 @@ flowchart LR
 
 | Stage | HF artifact | Local path |
 |-------|-------------|------------|
+| Doc orientation | [PP-LCNet_x1_0_doc_ori_safetensors](https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_doc_ori_safetensors) | `models/PP-LCNet_x1_0_doc_ori/` |
+| Doc unwarping | [UVDoc_safetensors](https://huggingface.co/PaddlePaddle/UVDoc_safetensors) | `models/UVDoc/` |
 | Layout | [PP-DocLayoutV3_safetensors](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_safetensors) | `models/PP-DocLayoutV3/` |
 | Recognition | [PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) | `models/PaddleOCR-VL-1.6/` |
 
@@ -41,7 +45,7 @@ From `models/PP-DocLayoutV3/config.json` (mirrored in `crates/pp-doclayout-v3/te
 
 **Naming:** Official Paddle [inference.yml](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3/blob/main/inference.yml) uses `display_formula` and `vertical_text` instead of `formula` / `text_block`. `task_for_layout_label` accepts `display_formula` as an alias for formula recognition.
 
-## docparser routing (`PIPELINE_PROFILE=official_v16`)
+## docparser routing (default pipeline)
 
 Logic in `crates/paddleocr-vl/src/lib.rs` (`task_for_layout_label`, `should_run_vlm_for_label`).
 
@@ -54,7 +58,7 @@ Logic in `crates/paddleocr-vl/src/lib.rs` (`task_for_layout_label`, `should_run_
 | `seal` | `Seal` | `Seal Recognition:` | Only if `use_seal_recognition` |
 | `image`, `header_image`, `footer_image` | `Ocr` | `OCR:` | Only if `use_ocr_for_image_block` |
 
-Official profile sets `use_chart_recognition`, `use_seal_recognition`, and `use_ocr_for_image_block` to **false** (same as PaddleX defaults).
+Official defaults set `use_chart_recognition`, `use_seal_recognition`, and `use_ocr_for_image_block` to **false** (same as PaddleX).
 
 ### Markdown output
 
@@ -64,9 +68,9 @@ Labels omitted from assembled Markdown (`official_markdown_ignore_labels`):
 number, footnote, header, header_image, footer, footer_image, aside_text
 ```
 
-The `minimal` profile also ignores `formula_number`.
+Doc orientation and unwarping run before layout when enabled (default). Opt out: `USE_DOC_ORIENTATION_CLASSIFY=false`, `USE_DOC_UNWARPING=false`.
 
-### Per-class box merge (official v1.6)
+### Per-class box merge
 
 | Merge mode | Labels |
 |------------|--------|
@@ -116,4 +120,4 @@ Default layout on PP-StructureV3 is often `PP-DocLayout_plus-L`, not PP-DocLayou
 ## See also
 
 - [paddleocr_model_alignment.md](paddleocr_model_alignment.md) — orchestration vs PaddleX YAML
-- [alignment_defaults.md](alignment_defaults.md) — `minimal` vs `official_v16` parameters
+- [alignment_defaults.md](alignment_defaults.md) — pipeline parameters

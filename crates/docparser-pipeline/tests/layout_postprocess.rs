@@ -1,6 +1,6 @@
 use docparser_pipeline::{
-    layout_nms, merge_layout_blocks, merge_layout_blocks_with_mode_fn,
-    official_v16_merge_mode_for_label, MergeBboxesMode,
+    layout_nms, merge_layout_blocks, merge_layout_blocks_with_mode_fn, merge_mode_for_label,
+    MergeBboxesMode,
 };
 use pp_doclayout_v3::LayoutElement;
 
@@ -45,7 +45,7 @@ fn official_v16_formula_large_keeps_outer() {
         el(0, "text", 0.85, [10.0, 10.0, 20.0, 20.0]),
         el(1, "formula", 0.9, [0.0, 0.0, 100.0, 100.0]),
     ];
-    let out = merge_layout_blocks_with_mode_fn(elements, official_v16_merge_mode_for_label);
+    let out = merge_layout_blocks_with_mode_fn(elements, merge_mode_for_label);
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].label, "formula");
 }
@@ -56,14 +56,14 @@ fn official_v16_union_labels_keep_both_when_overlapping() {
         el(0, "text", 0.9, [0.0, 0.0, 10.0, 10.0]),
         el(1, "table", 0.85, [1.0, 1.0, 9.0, 9.0]),
     ];
-    let out = merge_layout_blocks_with_mode_fn(elements, official_v16_merge_mode_for_label);
+    let out = merge_layout_blocks_with_mode_fn(elements, merge_mode_for_label);
     assert_eq!(out.len(), 2);
 }
 
 #[test]
 fn official_v16_merge_mode_for_display_formula() {
     assert_eq!(
-        official_v16_merge_mode_for_label("display_formula"),
+        merge_mode_for_label("display_formula"),
         MergeBboxesMode::Large
     );
 }

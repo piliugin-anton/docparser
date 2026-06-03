@@ -829,10 +829,12 @@ dependencies = [
  "image",
  "paddleocr-vl",
  "pp-doclayout-v3",
+ "pp-lcnet-doc-ori",
  "serde",
  "serde_json",
  "tracing",
  "uuid",
+ "uvdoc",
 ]
 
 [[package]]
@@ -2411,6 +2413,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pp-lcnet-doc-ori"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "candle-nn",
+ "docparser-candle-utils",
+ "docparser-test-utils",
+ "image",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3800,6 +3816,20 @@ dependencies = [
  "js-sys",
  "serde_core",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "uvdoc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "candle-nn",
+ "docparser-candle-utils",
+ "docparser-test-utils",
+ "image",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

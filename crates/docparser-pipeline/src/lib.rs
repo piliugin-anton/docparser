@@ -13,15 +13,12 @@ use pp_doclayout_v3::LayoutModel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub use doc_preprocess::{preprocess_document, DocPreprocessorConfig};
+pub use doc_preprocess::{preprocess_document, DocPreprocessor, DocPreprocessorConfig};
 pub use layout_merge::{
-    merge_layout_blocks, merge_layout_blocks_with_mode_fn, official_v16_merge_mode_for_label,
-    MergeBboxesMode,
+    merge_layout_blocks, merge_layout_blocks_with_mode_fn, merge_mode_for_label, MergeBboxesMode,
 };
 pub use layout_nms::layout_nms;
-pub use markdown::{
-    blocks_to_markdown, default_markdown_ignore_labels, official_markdown_ignore_labels,
-};
+pub use markdown::{blocks_to_markdown, official_markdown_ignore_labels};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceInfo {
@@ -47,7 +44,7 @@ pub struct ParseMetadata {
     pub layout_model: String,
     pub processing_ms: u64,
     pub device: String,
-    pub pipeline_profile: String,
+    pub pipeline_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,22 +58,14 @@ pub struct DocumentParseResult {
     pub metadata: ParseMetadata,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PipelineProfile {
-    Minimal,
-    OfficialV16,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineConfig {
-    pub profile: PipelineProfile,
     pub max_tokens: usize,
     pub layout_threshold: f32,
     pub layout_unclip_ratio: f32,
     pub layout_nms: bool,
     pub layout_nms_iou: f32,
     pub merge_layout_blocks: bool,
-    pub layout_merge_bboxes_mode: MergeBboxesMode,
     pub markdown_ignore_labels: Vec<String>,
     pub use_chart_recognition: bool,
     pub use_seal_recognition: bool,
@@ -87,41 +76,13 @@ pub struct PipelineConfig {
 
 impl Default for PipelineConfig {
     fn default() -> Self {
-        Self::minimal()
-    }
-}
-
-impl PipelineConfig {
-    pub fn minimal() -> Self {
         Self {
-            profile: PipelineProfile::Minimal,
-            max_tokens: 4096,
-            layout_threshold: 0.5,
-            layout_unclip_ratio: 0.02,
-            layout_nms: false,
-            layout_nms_iou: 0.5,
-            merge_layout_blocks: false,
-            layout_merge_bboxes_mode: MergeBboxesMode::Union,
-            markdown_ignore_labels: default_markdown_ignore_labels(),
-            use_chart_recognition: false,
-            use_seal_recognition: false,
-            use_ocr_for_image_block: false,
-            include_markdown: true,
-            doc_preprocess: DocPreprocessorConfig::default(),
-        }
-    }
-
-    /// PaddleOCR-VL-1.6 orchestration per PaddleX `PaddleOCR-VL-1.6.yaml` and [docs/alignment_defaults.md](../../docs/alignment_defaults.md).
-    pub fn official_v16() -> Self {
-        Self {
-            profile: PipelineProfile::OfficialV16,
             max_tokens: 4096,
             layout_threshold: 0.3,
             layout_unclip_ratio: 1.0,
             layout_nms: true,
             layout_nms_iou: 0.5,
             merge_layout_blocks: true,
-            layout_merge_bboxes_mode: MergeBboxesMode::Union,
             markdown_ignore_labels: official_markdown_ignore_labels(),
             use_chart_recognition: false,
             use_seal_recognition: false,
@@ -130,11 +91,28 @@ impl PipelineConfig {
             doc_preprocess: DocPreprocessorConfig::default(),
         }
     }
+}
 
-    pub fn pipeline_version_string(&self) -> String {
-        match self.profile {
-            PipelineProfile::Minimal => "v1".into(),
-            PipelineProfile::OfficialV16 => "v1.6-official".into(),
+impl PipelineConfig {
+    pub const PIPELINE_VERSION: &'static str = "v1.6";
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelPaths {
+    pub vlm: PathBuf,
+    pub layout: PathBuf,
+    pub doc_ori: PathBuf,
+    pub uvdoc: PathBuf,
+}
+
+impl ModelPaths {
+    pub fn from_models_dir(base: impl AsRef<Path>) -> Self {
+        let base = base.as_ref();
+        Self {
+            vlm: base.join("PaddleOCR-VL-1.6"),
+            layout: base.join("PP-DocLayoutV3"),
+            doc_ori: base.join("PP-LCNet_x1_0_doc_ori"),
+            uvdoc: base.join("UVDoc"),
         }
     }
 }
@@ -142,32 +120,54 @@ impl PipelineConfig {
 pub struct DocumentPipeline {
     layout: LayoutModel,
     vlm: VlmModel,
+    doc_prep: DocPreprocessor,
     config: PipelineConfig,
     vl_model_name: String,
     layout_model_name: String,
 }
 
 impl DocumentPipeline {
+    pub fn from_models_dir(models_dir: impl AsRef<Path>, config: PipelineConfig) -> Result<Self> {
+        let paths = ModelPaths::from_models_dir(models_dir);
+        Self::from_paths(&paths, config)
+    }
+
+    pub fn from_paths(paths: &ModelPaths, config: PipelineConfig) -> Result<Self> {
+        let device = Device::Cpu;
+        let vlm = VlmModel::from_dir(&paths.vlm, device)?;
+        let layout =
+            LayoutModel::from_dir_with_threshold(&paths.layout, config.layout_threshold)?;
+        let doc_prep = DocPreprocessor::from_model_dirs(
+            Some(&paths.doc_ori),
+            Some(&paths.uvdoc),
+            &config.doc_preprocess,
+        )?;
+
+        Ok(Self {
+            vl_model_name: paths.vlm.display().to_string(),
+            layout_model_name: paths.layout.display().to_string(),
+            layout,
+            vlm,
+            doc_prep,
+            config,
+        })
+    }
+
+    /// Load VLM + layout from explicit dirs (doc prep models resolved from sibling paths when present).
     pub fn from_dirs(
         vlm_dir: impl AsRef<Path>,
         layout_dir: impl AsRef<Path>,
         config: PipelineConfig,
     ) -> Result<Self> {
-        let device = Device::Cpu;
-        let vlm_dir = vlm_dir.as_ref().to_path_buf();
-        let layout_dir = layout_dir.as_ref().to_path_buf();
-
-        let vlm = VlmModel::from_dir(&vlm_dir, device)?;
-        let layout =
-            LayoutModel::from_dir_with_threshold(&layout_dir, config.layout_threshold)?;
-
-        Ok(Self {
-            vl_model_name: vlm_dir.display().to_string(),
-            layout_model_name: layout_dir.display().to_string(),
-            layout,
-            vlm,
-            config,
-        })
+        let vlm_dir = vlm_dir.as_ref();
+        let layout_dir = layout_dir.as_ref();
+        let base = vlm_dir
+            .parent()
+            .unwrap_or_else(|| Path::new("models"));
+        let mut paths = ModelPaths::from_models_dir(base);
+        paths.vlm = vlm_dir.to_path_buf();
+        paths.layout = layout_dir.to_path_buf();
+        Self::from_paths(&paths, config)
     }
 
     pub fn parse_image(
@@ -176,7 +176,9 @@ impl DocumentPipeline {
         filename: Option<String>,
     ) -> Result<DocumentParseResult> {
         let started = std::time::Instant::now();
-        let image = preprocess_document(image, &self.config.doc_preprocess)?;
+        let (image, prep_stages) = self
+            .doc_prep
+            .preprocess_document(image, &self.config.doc_preprocess)?;
         let (width, height) = image.dimensions();
         let rgb = image.to_rgb8();
 
@@ -185,16 +187,8 @@ impl DocumentPipeline {
             layout_elements = layout_nms(layout_elements, self.config.layout_nms_iou);
         }
         if self.config.merge_layout_blocks {
-            layout_elements = match self.config.profile {
-                PipelineProfile::OfficialV16 => merge_layout_blocks_with_mode_fn(
-                    layout_elements,
-                    official_v16_merge_mode_for_label,
-                ),
-                PipelineProfile::Minimal => merge_layout_blocks(
-                    layout_elements,
-                    self.config.layout_merge_bboxes_mode,
-                ),
-            };
+            layout_elements =
+                merge_layout_blocks_with_mode_fn(layout_elements, merge_mode_for_label);
         }
 
         if layout_elements.is_empty() {
@@ -248,6 +242,10 @@ impl DocumentPipeline {
             None
         };
 
+        let mut stages: Vec<String> = prep_stages.into_iter().map(str::to_string).collect();
+        stages.push("pp_doclayout_v3".into());
+        stages.push("paddleocr_vl_1.6".into());
+
         Ok(DocumentParseResult {
             document_id: Uuid::new_v4(),
             source: SourceInfo {
@@ -256,11 +254,8 @@ impl DocumentPipeline {
                 height,
                 format: "rgb".into(),
             },
-            pipeline_version: self.config.pipeline_version_string(),
-            stages: vec![
-                "pp_doclayout_v3".into(),
-                "paddleocr_vl_1.6".into(),
-            ],
+            pipeline_version: PipelineConfig::PIPELINE_VERSION.into(),
+            stages,
             blocks,
             markdown,
             metadata: ParseMetadata {
@@ -268,7 +263,7 @@ impl DocumentPipeline {
                 layout_model: self.layout_model_name.clone(),
                 processing_ms: started.elapsed().as_millis() as u64,
                 device: "cpu".into(),
-                pipeline_profile: format!("{:?}", self.config.profile),
+                pipeline_version: PipelineConfig::PIPELINE_VERSION.into(),
             },
         })
     }
@@ -303,9 +298,10 @@ fn crop_bbox(image: &RgbImage, bbox: [f32; 4], unclip_ratio: f32) -> RgbImage {
 }
 
 pub fn default_model_paths(base: impl AsRef<Path>) -> (PathBuf, PathBuf) {
-    let base = base.as_ref();
-    (
-        base.join("PaddleOCR-VL-1.6"),
-        base.join("PP-DocLayoutV3"),
-    )
+    let paths = ModelPaths::from_models_dir(base);
+    (paths.vlm, paths.layout)
+}
+
+pub fn model_paths(base: impl AsRef<Path>) -> ModelPaths {
+    ModelPaths::from_models_dir(base)
 }

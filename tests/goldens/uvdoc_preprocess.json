@@ -1,0 +1,54 @@
+{
+  "fixture": "uvdoc_demo.jpeg",
+  "input_size": [
+    1100,
+    708
+  ],
+  "flow_shape": [
+    1,
+    2,
+    45,
+    31
+  ],
+  "flow_corners": {
+    "top_left": -0.7634801268577576,
+    "top_right": 0.7316155433654785,
+    "bottom_left": -0.8672488331794739
+  },
+  "flow_atol": 0.02,
+  "preprocess": {
+    "shape": [
+      1,
+      3,
+      712,
+      488
+    ],
+    "top_left": 0.6941176652908325,
+    "top_right": 0.3019607961177826,
+    "bottom_left": 0.16470588743686676,
+    "ch0_mean": 0.5595607161521912,
+    "ch0_std": 0.23950600624084473
+  },
+  "pixel_values_corner_atol": 0.02,
+  "input_corners": {
+    "size": [
+      1100,
+      708
+    ],
+    "top_left": [
+      130,
+      138,
+      177
+    ],
+    "top_right": [
+      94,
+      95,
+      77
+    ],
+    "bottom_left": [
+      54,
+      56,
+      42
+    ]
+  }
+}

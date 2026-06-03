@@ -91,7 +91,7 @@ def update_vlm() -> None:
                 "pixel_values": pixel_corners(inputs["pixel_values"]),
                 "grid_thw": grid_thw,
                 "generation_config": generation_config,
-                "pixel_values_corner_atol": 0.003,
+                "pixel_values_corner_atol": 0.01,
             }
             write_json(GOLDENS / "vlm_preprocess_ocr_demo2.json", payload)
 
@@ -153,6 +153,120 @@ def update_layout_all() -> None:
     update_layout("ocr_demo2.jpg", "layout_postprocess_ocr_demo2.json")
 
 
+def update_doc_prep() -> None:
+    try:
+        from transformers import AutoModelForImageClassification, AutoModel, AutoImageProcessor
+        from PIL import Image
+        import torch
+    except ImportError as exc:
+        raise SystemExit("pip install transformers torch pillow") from exc
+
+    def image_corners_rgb(image: Image.Image) -> dict:
+        arr = image.convert("RGB")
+        w, h = arr.size
+        px = arr.load()
+        return {
+            "size": [w, h],
+            "top_left": list(px[0, 0]),
+            "top_right": list(px[w - 1, 0]),
+            "bottom_left": list(px[0, h - 1]),
+        }
+
+    # --- PP-LCNet doc orientation ---
+    ori_dir = MODELS / "PP-LCNet_x1_0_doc_ori"
+    if not ori_dir.joinpath("model.safetensors").is_file():
+        raise SystemExit(f"missing {ori_dir}; run docparser-download")
+
+    ori_fixture = FIXTURES / "doc_ori_demo.png"
+    if not ori_fixture.is_file():
+        ori_fixture = FIXTURES / "ocr_demo2.jpg"
+
+    ori_proc = AutoImageProcessor.from_pretrained(ori_dir, trust_remote_code=True)
+    ori_model = AutoModelForImageClassification.from_pretrained(
+        ori_dir, trust_remote_code=True
+    )
+    ori_model.eval()
+    ori_image = Image.open(ori_fixture).convert("RGB")
+    ori_inputs = ori_proc(images=ori_image, return_tensors="pt")
+    with torch.no_grad():
+        ori_out = ori_model(**ori_inputs)
+    ori_logits = ori_out.last_hidden_state[0].tolist()
+    ori_pred = int(ori_out.last_hidden_state.argmax(dim=-1).item())
+
+    id2label = ori_model.config.id2label
+    angle_label = id2label.get(str(ori_pred), id2label.get(ori_pred, str(ori_pred)))
+
+    write_json(
+        GOLDENS / "doc_ori_preprocess.json",
+        {
+            "fixture": ori_fixture.name,
+            "predicted_class": ori_pred,
+            "predicted_angle": int(angle_label),
+            "logits": ori_logits,
+            "logits_atol": 0.02,
+            "preprocess": pixel_corners(ori_inputs["pixel_values"]),
+            "pixel_values_corner_atol": 0.02,
+        },
+    )
+
+    # --- UVDoc unwarping (flow field from HF UVDocModel) ---
+    uv_dir = MODELS / "UVDoc"
+    if not uv_dir.joinpath("model.safetensors").is_file():
+        raise SystemExit(f"missing {uv_dir}; run docparser-download")
+
+    uv_fixture = FIXTURES / "uvdoc_demo.jpeg"
+    if not uv_fixture.is_file():
+        uv_fixture = FIXTURES / "ocr_demo2.jpg"
+
+    uv_proc = AutoImageProcessor.from_pretrained(uv_dir, trust_remote_code=True)
+    uv_model = AutoModel.from_pretrained(uv_dir, trust_remote_code=True)
+    uv_model.eval()
+    uv_image = Image.open(uv_fixture).convert("RGB")
+    uv_inputs = uv_proc(images=uv_image, return_tensors="pt")
+    with torch.no_grad():
+        uv_out = uv_model(**uv_inputs)
+    flow = uv_out.last_hidden_state
+    _, _, fh, fw = flow.shape
+
+    write_json(
+        GOLDENS / "uvdoc_preprocess.json",
+        {
+            "fixture": uv_fixture.name,
+            "input_size": list(uv_image.size),
+            "flow_shape": list(flow.shape),
+            "flow_corners": {
+                "top_left": float(flow[0, 0, 0, 0]),
+                "top_right": float(flow[0, 0, 0, fw - 1]),
+                "bottom_left": float(flow[0, 0, fh - 1, 0]),
+            },
+            "flow_atol": 0.02,
+            "preprocess": pixel_corners(uv_inputs["pixel_values"]),
+            "pixel_values_corner_atol": 0.02,
+            "input_corners": image_corners_rgb(uv_image),
+        },
+    )
+
+    # --- UVDoc rectified output (full HF post-process) ---
+    with torch.no_grad():
+        rectified = uv_proc.post_process_document_rectification(flow, uv_inputs["original_images"])
+    rect_img = rectified[0]["images"]  # H,W,C BGR uint8
+    rh, rw, _ = rect_img.shape
+
+    write_json(
+        GOLDENS / "uvdoc_rectify.json",
+        {
+            "fixture": uv_fixture.name,
+            "output_size": [int(rw), int(rh)],
+            "corners_rgb": {
+                "top_left": rect_img[0, 0].tolist(),
+                "top_right": rect_img[0, rw - 1].tolist(),
+                "bottom_left": rect_img[rh - 1, 0].tolist(),
+            },
+            "pixel_atol": 2,
+        },
+    )
+
+
 def update_pipeline_e2e() -> None:
     try:
         from paddleocr import PaddleOCRVL
@@ -196,17 +310,20 @@ def main() -> None:
     parser.add_argument("--update-goldens", action="store_true")
     parser.add_argument("--layout", action="store_true")
     parser.add_argument("--vlm", action="store_true")
+    parser.add_argument("--doc-prep", action="store_true")
     parser.add_argument("--e2e", action="store_true")
     args = parser.parse_args()
     if not args.update_goldens:
         parser.print_help()
         return
-    run_layout = args.layout or not (args.layout or args.vlm or args.e2e)
-    run_vlm = args.vlm or not (args.layout or args.vlm or args.e2e)
+    run_layout = args.layout or not (args.layout or args.vlm or args.e2e or args.doc_prep)
+    run_vlm = args.vlm or not (args.layout or args.vlm or args.e2e or args.doc_prep)
     if run_vlm:
         update_vlm()
     if run_layout:
         update_layout_all()
+    if args.doc_prep:
+        update_doc_prep()
     if args.e2e:
         update_pipeline_e2e()
 

@@ -32,6 +32,9 @@ struct Args {
     layout_only: bool,
 
     #[arg(long)]
+    doc_prep_only: bool,
+
+    #[arg(long)]
     fixtures_only: bool,
 
     #[arg(long)]
@@ -69,6 +72,7 @@ async fn main() -> Result<()> {
         args.include_reference,
         args.vlm_only,
         args.layout_only,
+        args.doc_prep_only,
         args.fixtures_only,
         &opts,
     )

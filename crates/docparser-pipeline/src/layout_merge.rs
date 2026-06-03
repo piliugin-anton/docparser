@@ -52,8 +52,8 @@ enum MergePairAction {
     DropIncoming,
 }
 
-/// Merge mode per label from [PaddleX PaddleOCR-VL-1.6.yaml](https://github.com/PaddlePaddle/PaddleX/blob/develop/paddlex/configs/pipelines/PaddleOCR-VL-1.6.yaml).
-pub fn official_v16_merge_mode_for_label(label: &str) -> MergeBboxesMode {
+/// Per-class merge mode for PaddleOCR-VL-1.6 (PaddleX YAML).
+pub fn merge_mode_for_label(label: &str) -> MergeBboxesMode {
     match label {
         "chart" | "formula" | "display_formula" | "doc_title" | "inline_formula"
         | "paragraph_title" => MergeBboxesMode::Large,

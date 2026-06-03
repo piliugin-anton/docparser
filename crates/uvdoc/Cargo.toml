@@ -1,0 +1,21 @@
+[package]
+name = "uvdoc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "UVDoc document unwarping (Candle + safetensors)"
+
+[features]
+mkl = ["candle-core/mkl", "candle-nn/mkl", "docparser-candle-utils/mkl"]
+
+[dependencies]
+anyhow = "1"
+candle-core.workspace = true
+candle-nn.workspace = true
+docparser-candle-utils = { path = "../docparser-candle-utils" }
+image = "0.25"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+docparser-test-utils = { path = "../docparser-test-utils" }

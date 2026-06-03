@@ -34,10 +34,3 @@ pub fn official_markdown_ignore_labels() -> Vec<String> {
     .map(|s| (*s).to_string())
     .collect()
 }
-
-/// Legacy docparser list (includes `formula_number` in markdown output).
-pub fn default_markdown_ignore_labels() -> Vec<String> {
-    let mut labels = official_markdown_ignore_labels();
-    labels.push("formula_number".into());
-    labels
-}

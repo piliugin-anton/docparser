@@ -1,11 +1,18 @@
 use std::path::PathBuf;
 
-use docparser_pipeline::PipelineConfig;
+use docparser_pipeline::{DocPreprocessorConfig, PipelineConfig};
 
 /// Load `.env` from the current working directory when present.
 /// Existing environment variables are not overridden.
 pub fn load_env_file() {
     let _ = dotenvy::dotenv();
+}
+
+fn env_bool(name: &str, default: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(default)
 }
 
 pub struct ApiConfig {
@@ -19,14 +26,7 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         load_env_file();
-        let official = std::env::var("PIPELINE_PROFILE")
-            .map(|v| v.eq_ignore_ascii_case("official_v16") || v == "v1.6")
-            .unwrap_or(false);
-        let mut pipeline = if official {
-            PipelineConfig::official_v16()
-        } else {
-            PipelineConfig::minimal()
-        };
+        let mut pipeline = PipelineConfig::default();
         pipeline.max_tokens = std::env::var("MAX_TOKENS")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -47,6 +47,10 @@ impl Default for ApiConfig {
         if let Ok(v) = std::env::var("MERGE_LAYOUT_BLOCKS") {
             pipeline.merge_layout_blocks = v == "1" || v.eq_ignore_ascii_case("true");
         }
+        pipeline.doc_preprocess = DocPreprocessorConfig {
+            use_orientation: env_bool("USE_DOC_ORIENTATION_CLASSIFY", true),
+            use_unwarping: env_bool("USE_DOC_UNWARPING", true),
+        };
         Self {
             bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
             models_dir: std::env::var("MODELS_DIR")

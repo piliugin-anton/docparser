@@ -1,0 +1,26 @@
+{
+  "fixture": "doc_ori_demo.png",
+  "predicted_class": 2,
+  "predicted_angle": 180,
+  "logits": [
+    -0.7931303977966309,
+    -0.8502728939056396,
+    2.584949016571045,
+    -0.9392668604850769
+  ],
+  "logits_atol": 0.02,
+  "preprocess": {
+    "shape": [
+      1,
+      3,
+      224,
+      224
+    ],
+    "top_left": 1.1529239416122437,
+    "top_right": -0.4568028450012207,
+    "bottom_left": -1.8610326051712036,
+    "ch0_mean": 0.07464401423931122,
+    "ch0_std": 0.9695930480957031
+  },
+  "pixel_values_corner_atol": 0.02
+}

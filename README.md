@@ -1,13 +1,13 @@
 # docparser
 
-Pure-Rust document parser pipeline using [PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) and [PP-DocLayoutV3_safetensors](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_safetensors) HuggingFace artifacts.
+Pure-Rust document parser pipeline using [PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6), [PP-DocLayoutV3_safetensors](https://huggingface.co/PaddlePaddle/PP-DocLayoutV3_safetensors), [PP-LCNet_x1_0_doc_ori_safetensors](https://huggingface.co/PaddlePaddle/PP-LCNet_x1_0_doc_ori_safetensors), and [UVDoc_safetensors](https://huggingface.co/PaddlePaddle/UVDoc_safetensors) HuggingFace artifacts.
 
-Two-stage flow: layout detection → region crop → VLM recognition → JSON + Markdown.
+Flow: document orientation → geometric unwarping → layout detection → region crop → VLM recognition → JSON + Markdown.
 
 ## Prerequisites
 
 - Rust 1.75+
-- ~2.1 GB disk for model weights
+- ~2.15 GB disk for model weights
 - 4 GB+ RAM recommended (CPU inference)
 
 ## Setup
@@ -28,12 +28,16 @@ Expected layout:
 
 ```
 models/
-├── PaddleOCR-VL-1.6/     # HF VLM weights + tokenizer (Candle safetensors)
-└── PP-DocLayoutV3/       # HF safetensors layout weights (`model.safetensors`)
+├── PaddleOCR-VL-1.6/        # HF VLM weights + tokenizer (Candle safetensors)
+├── PP-DocLayoutV3/          # HF safetensors layout weights
+├── PP-LCNet_x1_0_doc_ori/   # Document orientation classifier (~7 MB)
+└── UVDoc/                   # Document unwarping (~32 MB)
 
 tests/fixtures/
 ├── ocr_demo2.jpg
-└── layout_demo.jpg
+├── layout_demo.jpg
+├── doc_ori_demo.png
+└── uvdoc_demo.jpeg
 ```
 
 Copy environment defaults:
@@ -95,7 +99,7 @@ source scripts/mkl-env.sh
 source scripts/mkl-env.sh && cargo run -p docparser-api --release --features mkl
 ```
 
-The feature is forwarded through `docparser-pipeline` → `paddleocr-vl`, `pp-doclayout-v3`, and `docparser-candle-utils`. Without `--features mkl`, inference uses Candle’s default CPU backend (no MKL required).
+The feature is forwarded through `docparser-pipeline` → `paddleocr-vl`, `pp-doclayout-v3`, `pp-lcnet-doc-ori`, `uvdoc`, and `docparser-candle-utils`. Without `--features mkl`, inference uses Candle’s default CPU backend (no MKL required).
 
 ```bash
 cargo run -p docparser-api
@@ -112,16 +116,17 @@ Example:
 curl -s -F "file=@tests/fixtures/ocr_demo2.jpg" http://localhost:8080/v1/parse | jq .
 ```
 
-## Pipeline profiles
+## Pipeline
 
-| Profile | How to enable | Behavior |
-|---------|---------------|----------|
-| `minimal` | default | Legacy docparser settings (`layout_unclip_ratio=0.02`, no merge) |
-| `official_v16` | `PIPELINE_PROFILE=official_v16` | PaddleOCR-VL v1.6 orchestration per [PaddleX YAML](https://github.com/PaddlePaddle/PaddleX/blob/develop/paddlex/configs/pipelines/PaddleOCR-VL-1.6.yaml) — see [docs/alignment_defaults.md](docs/alignment_defaults.md) |
+Single **PaddleOCR-VL v1.6** orchestration (`PipelineConfig::default()`): layout threshold 0.3, NMS, per-class merge, PaddleX markdown ignores, and **document preprocessing enabled by default** (orientation then unwarping). PaddleX YAML sets `use_doc_preprocessor: false`; docparser turns it on for skewed/curved/rotated inputs — see [docs/alignment_defaults.md](docs/alignment_defaults.md).
+
+Opt out of doc preprocessing:
 
 ```bash
-PIPELINE_PROFILE=official_v16 cargo run -p docparser-api
+USE_DOC_ORIENTATION_CLASSIFY=false USE_DOC_UNWARPING=false cargo run -p docparser-api
 ```
+
+Each parse adds ~40 MB mmap for doc-prep weights and modest per-page latency on top of layout + VLM.
 
 ## Workspace crates
 
@@ -131,7 +136,9 @@ PIPELINE_PROFILE=official_v16 cargo run -p docparser-api
 | `docparser-candle-utils` | Shared safetensors mmap / parity helpers |
 | `paddleocr-vl` | In-tree PaddleOCR-VL Candle inference |
 | `pp-doclayout-v3` | PP-DocLayoutV3 layout (Candle + safetensors) |
-| `docparser-pipeline` | Two-stage orchestration |
+| `pp-lcnet-doc-ori` | PP-LCNet document orientation (Candle + safetensors) |
+| `uvdoc` | UVDoc document unwarping (Candle + safetensors) |
+| `docparser-pipeline` | Full orchestration (doc prep + layout + VLM) |
 | `docparser-api` | Axum HTTP server |
 | `docparser-test-utils` | Parity test helpers |
 
@@ -153,7 +160,7 @@ Regenerate golden files (optional, Python dev harness):
 
 ```bash
 pip install transformers torch pillow
-python tools/parity_gen.py --update-goldens --layout --vlm
+python tools/parity_gen.py --update-goldens --layout --vlm --doc-prep
 # optional end-to-end reference (paddleocr + GPU):
 # pip install "paddleocr[doc-parser]"
 # python tools/parity_gen.py --update-goldens --e2e
@@ -167,11 +174,12 @@ python tools/parity_gen.py --update-goldens --layout --vlm
 | `MODELS_DIR` | `models` | Model artifacts root |
 | `MAX_UPLOAD_MB` | `20` | Upload size limit |
 | `MAX_TOKENS` | `4096` | VLM decode limit |
-| `PIPELINE_PROFILE` | `minimal` | `official_v16` for aligned orchestration |
-| `LAYOUT_UNCLIP_RATIO` | profile default | Crop expansion ratio |
-| `LAYOUT_THRESHOLD` | `0.5` | Layout score threshold |
-| `LAYOUT_NMS` | `false` | Enable layout NMS |
-| `MERGE_LAYOUT_BLOCKS` | profile default | Merge overlapping layout boxes |
+| `USE_DOC_ORIENTATION_CLASSIFY` | `true` | Rotate page via PP-LCNet doc ori |
+| `USE_DOC_UNWARPING` | `true` | Rectify curved pages via UVDoc |
+| `LAYOUT_UNCLIP_RATIO` | `1.0` | Crop expansion ratio |
+| `LAYOUT_THRESHOLD` | `0.3` | Layout score threshold |
+| `LAYOUT_NMS` | `true` | Enable layout NMS |
+| `MERGE_LAYOUT_BLOCKS` | `true` | Merge overlapping layout boxes |
 | `HF_TOKEN` | — | Optional HuggingFace auth |
 | `RUN_SLOW` | — | Enable ignored parity tests |
 | `OMP_NUM_THREADS` | — | MKL/OpenMP thread count when built with `--features mkl` |
@@ -184,12 +192,12 @@ Uses the **PaddleOCR-VL-1.6** stack (`PP-DocLayoutV3` + `PaddleOCR-VL-1.6`), not
 - **Tensor parity:** HF Transformers + safetensors weights (`parity_gen.py` goldens under `tests/goldens/`).
 - **Layout:** `preprocessor_config.json`-driven resize/normalize; labels from `config.json` `id2label`.
 - **VLM:** Greedy decode; `generation_config.json` caps `max_new_tokens`; manual prompt layout matches HF `AutoProcessor` length (see slow tests).
-- **Orchestration:** `PipelineConfig::official_v16()` — threshold 0.3, NMS, per-class merge, PaddleX markdown ignores — [docs/alignment_defaults.md](docs/alignment_defaults.md), [docs/paddleocr_model_alignment.md](docs/paddleocr_model_alignment.md).
+- **Orchestration:** `PipelineConfig::default()` — threshold 0.3, NMS, per-class merge, PaddleX markdown ignores, doc prep on — [docs/alignment_defaults.md](docs/alignment_defaults.md), [docs/paddleocr_model_alignment.md](docs/paddleocr_model_alignment.md).
 - **Layout labels & HF models:** [docs/layout_labels_and_models.md](docs/layout_labels_and_models.md).
-- **Not implemented:** doc orientation/unwarping (stubs error if enabled), polygon masks, Paddle `.pdiparams` runtime, PP-StructureV3 specialist models.
+- **Not implemented:** polygon masks, Paddle `.pdiparams` runtime, PP-StructureV3 specialist models.
 
 ## Notes
 
-- First request loads ~1.9 GB VLM weights (mmap) plus ~130 MB layout safetensors; allow 1–3 minutes on CPU before the first `/v1/parse` completes.
+- First request loads ~1.9 GB VLM weights (mmap) plus ~130 MB layout and ~40 MB doc-prep safetensors; allow 1–3 minutes on CPU before the first `/v1/parse` completes.
 - Per-page latency depends on region count (each layout region runs a VLM decode).
 - Optional: `cargo run -p docparser-download -- --include-reference` fetches HF `modeling_*.py` for porting.

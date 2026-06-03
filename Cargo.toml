@@ -6,6 +6,8 @@ members = [
     "crates/docparser-test-utils",
     "crates/paddleocr-vl",
     "crates/pp-doclayout-v3",
+    "crates/pp-lcnet-doc-ori",
+    "crates/uvdoc",
     "crates/docparser-pipeline",
     "crates/docparser-api",
 ]

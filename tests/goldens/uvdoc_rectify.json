@@ -1,0 +1,25 @@
+{
+  "fixture": "uvdoc_demo.jpeg",
+  "output_size": [
+    1100,
+    708
+  ],
+  "corners_rgb": {
+    "top_left": [
+      131,
+      137,
+      134
+    ],
+    "top_right": [
+      204,
+      210,
+      209
+    ],
+    "bottom_left": [
+      137,
+      139,
+      138
+    ]
+  },
+  "pixel_atol": 2
+}

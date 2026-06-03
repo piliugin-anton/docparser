@@ -10,12 +10,11 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 fn models_available() -> bool {
-    workspace_root()
-        .join("models/PaddleOCR-VL-1.6/model.safetensors")
-        .is_file()
-        && workspace_root()
-            .join("models/PP-DocLayoutV3/model.safetensors")
-            .is_file()
+    let base = workspace_root().join("models");
+    base.join("PaddleOCR-VL-1.6/model.safetensors").is_file()
+        && base.join("PP-DocLayoutV3/model.safetensors").is_file()
+        && base.join("PP-LCNet_x1_0_doc_ori/model.safetensors").is_file()
+        && base.join("UVDoc/model.safetensors").is_file()
 }
 
 #[test]
@@ -27,10 +26,8 @@ fn health_route_returns_ok_when_models_loaded() {
 
     let mut config = ApiConfig::default();
     config.models_dir = workspace_root().join("models");
-    let (vl, layout) = docparser_pipeline::default_model_paths(&config.models_dir);
-    let pipeline = docparser_pipeline::DocumentPipeline::from_dirs(
-        vl,
-        layout,
+    let pipeline = docparser_pipeline::DocumentPipeline::from_models_dir(
+        &config.models_dir,
         docparser_pipeline::PipelineConfig::default(),
     )
     .expect("load pipeline");
@@ -59,10 +56,8 @@ fn parse_rejects_missing_file_field() {
 
     let mut config = ApiConfig::default();
     config.models_dir = workspace_root().join("models");
-    let (vl, layout) = docparser_pipeline::default_model_paths(&config.models_dir);
-    let pipeline = docparser_pipeline::DocumentPipeline::from_dirs(
-        vl,
-        layout,
+    let pipeline = docparser_pipeline::DocumentPipeline::from_models_dir(
+        &config.models_dir,
         docparser_pipeline::PipelineConfig::default(),
     )
     .expect("load pipeline");
@@ -107,10 +102,8 @@ fn parse_ocr_demo2_returns_blocks() {
 
     let mut config = ApiConfig::default();
     config.models_dir = workspace_root().join("models");
-    let (vl, layout) = docparser_pipeline::default_model_paths(&config.models_dir);
-    let pipeline = docparser_pipeline::DocumentPipeline::from_dirs(
-        vl,
-        layout,
+    let pipeline = docparser_pipeline::DocumentPipeline::from_models_dir(
+        &config.models_dir,
         docparser_pipeline::PipelineConfig {
             max_tokens: 32,
             ..Default::default()

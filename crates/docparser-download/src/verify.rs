@@ -43,6 +43,20 @@ pub fn verify_models_dir(models_dir: &Path) -> Result<()> {
             bail!("missing layout artifact: {}", p.display());
         }
     }
+    let doc_ori = models_dir.join(manifest::DOC_ORI_DIR_NAME);
+    for file in manifest::DOC_ORI_REQUIRED {
+        let p = doc_ori.join(file);
+        if !p.is_file() {
+            bail!("missing doc orientation artifact: {}", p.display());
+        }
+    }
+    let uvdoc = models_dir.join(manifest::UVDOC_DIR_NAME);
+    for file in manifest::UVDOC_REQUIRED {
+        let p = uvdoc.join(file);
+        if !p.is_file() {
+            bail!("missing UVDoc artifact: {}", p.display());
+        }
+    }
     Ok(())
 }
 
