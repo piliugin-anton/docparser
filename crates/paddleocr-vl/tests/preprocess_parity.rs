@@ -69,6 +69,20 @@ fn preprocess_golden_values() {
     if golden.get("input_ids").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()) {
         assert_input_ids_eq(&ids, &golden);
     }
+
+    if let Some(expected_grid) = golden.get("grid_thw").and_then(|v| v.as_array()) {
+        let grid = vlm.preprocess_grid_thw(&rgb, VlmTask::Ocr).expect("grid_thw");
+        assert_eq!(grid.len(), expected_grid.len(), "grid_thw batch size");
+        for (row, exp_row) in grid.iter().zip(expected_grid.iter()) {
+            let exp: Vec<u32> = exp_row
+                .as_array()
+                .expect("grid row")
+                .iter()
+                .map(|v| v.as_u64().unwrap() as u32)
+                .collect();
+            assert_eq!(row, &exp, "grid_thw row");
+        }
+    }
 }
 
 #[test]

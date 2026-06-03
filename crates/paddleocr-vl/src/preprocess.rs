@@ -11,19 +11,20 @@ use crate::VlmTask;
 const PATCH_SIZE: usize = 14;
 const SPATIAL_MERGE: usize = 2;
 const FACTOR: usize = PATCH_SIZE * SPATIAL_MERGE;
-const MIN_PIXELS: usize = 147_384;
-const MAX_PIXELS: usize = 2_822_400;
+/// From `preprocessor_config.json` on HF PaddleOCR-VL-1.6.
+const MIN_PIXELS: usize = 112_896;
+const MAX_PIXELS: usize = 1_003_520;
 
-/// Resize so H,W are divisible by 28 and total pixels in [MIN, MAX] (smart_resize).
+/// Resize so H,W are divisible by 28 and total pixels in [MIN, MAX] (`smart_resize` in HF image processor).
 pub fn smart_resize(height: usize, width: usize) -> Result<(usize, usize)> {
     let mut h = height;
     let mut w = width;
     if h < FACTOR {
-        w = w * FACTOR / h.max(1);
+        w = ((w as f64 * FACTOR as f64) / h as f64).round() as usize;
         h = FACTOR;
     }
     if w < FACTOR {
-        h = h * FACTOR / w.max(1);
+        h = ((h as f64 * FACTOR as f64) / w as f64).round() as usize;
         w = FACTOR;
     }
     let aspect = if h > w {
@@ -33,8 +34,8 @@ pub fn smart_resize(height: usize, width: usize) -> Result<(usize, usize)> {
     };
     anyhow::ensure!(aspect <= 200.0, "aspect ratio {aspect} exceeds 200");
 
-    let mut h_bar = ((h + FACTOR / 2) / FACTOR) * FACTOR;
-    let mut w_bar = ((w + FACTOR / 2) / FACTOR) * FACTOR;
+    let mut h_bar = ((h as f64 / FACTOR as f64).round() as usize) * FACTOR;
+    let mut w_bar = ((w as f64 / FACTOR as f64).round() as usize) * FACTOR;
     let total = h_bar * w_bar;
     if total > MAX_PIXELS {
         let beta = ((h * w) as f64 / MAX_PIXELS as f64).sqrt();
@@ -88,35 +89,26 @@ pub fn num_image_tokens(grid_thw: &Tensor, spatial_merge: usize) -> Result<usize
     Ok(h * w)
 }
 
+const IMAGE_PLACEHOLDER: &str = "<|IMAGE_PLACEHOLDER|>";
+
+/// Build `input_ids` the same way as HF `PaddleOCRVLProcessor` + `chat_template.jinja`.
 pub fn build_input_ids(
     tokenizer: &Tokenizer,
-    cfg: &Config,
+    _cfg: &Config,
     task: VlmTask,
     num_image_tokens: usize,
     device: &Device,
 ) -> Result<Tensor> {
-    let bos = tokenizer
-        .token_to_id("<|begin_of_sentence|>")
-        .unwrap_or(1);
-    let user = tokenizer
-        .encode("User: ", false)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let task_enc = tokenizer
-        .encode(task.prompt(), false)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let assistant = tokenizer
-        .encode("\nAssistant: ", false)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-    let mut ids = vec![bos];
-    ids.extend(user.get_ids());
-    ids.push(cfg.vision_start_token_id);
-    ids.extend(std::iter::repeat(cfg.image_token_id).take(num_image_tokens));
-    ids.push(cfg.vision_end_token_id);
-    ids.extend(task_enc.get_ids());
-    ids.extend(assistant.get_ids());
-
-    Ok(Tensor::new(ids.as_slice(), device)?.unsqueeze(0)?)
+    let mut text = format!(
+        "<|begin_of_sentence|>User: <|IMAGE_START|>{IMAGE_PLACEHOLDER}<|IMAGE_END|>{task}\nAssistant:\n",
+        task = task.prompt()
+    );
+    let expanded = IMAGE_PLACEHOLDER.repeat(num_image_tokens);
+    text = text.replacen(IMAGE_PLACEHOLDER, &expanded, 1);
+    let enc = tokenizer
+        .encode(text.as_str(), false)
+        .map_err(|e| anyhow::anyhow!("tokenize prompt: {e}"))?;
+    Ok(Tensor::new(enc.get_ids(), device)?.unsqueeze(0)?)
 }
 
 pub fn load_tokenizer(model_dir: &std::path::Path) -> Result<Tokenizer> {

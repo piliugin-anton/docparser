@@ -38,12 +38,19 @@ impl VlmRunner {
         Ok(inputs.input_ids_vec)
     }
 
-    pub fn generate(
+    pub fn preprocess_grid_thw(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<Vec<u32>>> {
+        let inputs = self
+            .processor
+            .build_inputs(image, task, &self.device, self.dtype)?;
+        Ok(inputs.grid_thw.to_vec2()?)
+    }
+
+    pub fn generate_token_ids(
         &mut self,
         image: &RgbImage,
         task: VlmTask,
         max_new_tokens: usize,
-    ) -> Result<String> {
+    ) -> Result<Vec<u32>> {
         let inputs = self
             .processor
             .build_inputs(image, task, &self.device, self.dtype)?;
@@ -51,29 +58,44 @@ impl VlmRunner {
             .processor
             .generation
             .effective_max_new_tokens(max_new_tokens);
-        let eos = self
-            .processor
-            .generation
-            .eos_token_id
-            .unwrap_or_else(|| eos_token_id(&self.processor.tokenizer));
+        let eos = self.eos_token_id();
         if self.processor.generation.do_sample {
             tracing::warn!("do_sample=true in generation_config; using greedy decode");
         }
-        let tokens = self.model.generate(
+        Ok(self.model.generate(
             &inputs.input_ids,
             &inputs.pixel_values,
             &inputs.grid_thw,
             max_new,
             eos,
-        )?;
+        )?)
+    }
+
+    pub fn decode_token_ids(&self, tokens: &[u32]) -> Result<String> {
+        let eos = self.eos_token_id();
+        let trimmed: Vec<_> = tokens.iter().copied().take_while(|&t| t != eos).collect();
         let text = self
             .processor
             .tokenizer
-            .decode(
-                &tokens.into_iter().take_while(|&t| t != eos).collect::<Vec<_>>(),
-                true,
-            )
+            .decode(&trimmed, true)
             .map_err(|e| anyhow::anyhow!("decode: {e}"))?;
         Ok(text.trim().to_string())
+    }
+
+    pub fn eos_token_id(&self) -> u32 {
+        self.processor
+            .generation
+            .eos_token_id
+            .unwrap_or_else(|| eos_token_id(&self.processor.tokenizer))
+    }
+
+    pub fn generate(
+        &mut self,
+        image: &RgbImage,
+        task: VlmTask,
+        max_new_tokens: usize,
+    ) -> Result<String> {
+        let tokens = self.generate_token_ids(image, task, max_new_tokens)?;
+        self.decode_token_ids(&tokens)
     }
 }

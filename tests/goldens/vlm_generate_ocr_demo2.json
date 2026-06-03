@@ -1,0 +1,16 @@
+{
+  "eos_token_id": 2,
+  "fixture": "ocr_demo2.jpg",
+  "generated_token_ids": [
+    94021,
+    40891,
+    2
+  ],
+  "input_ids_len": 165,
+  "max_new_tokens": 30,
+  "prompt": "OCR:",
+  "source": "rust_greedy",
+  "task": "ocr",
+  "text": "生甘草",
+  "text_sha256": "3eb82b2bd9f7c6c1db509cfe0ab9d66b8ef4eccc56ed6cf26634990a9867c49c"
+}

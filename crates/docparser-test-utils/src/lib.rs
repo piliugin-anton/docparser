@@ -46,6 +46,25 @@ pub fn assert_slice_near(a: &[f32], b: &[f32], atol: f32) {
     }
 }
 
+pub fn assert_u32_ids_eq(actual: &[u32], golden: &Value, field: &str) {
+    let expected: Vec<u32> = golden[field]
+        .as_array()
+        .unwrap_or_else(|| panic!("golden {field} array"))
+        .iter()
+        .map(|v| v.as_u64().expect("token id") as u32)
+        .collect();
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{field} length {} vs {}",
+        actual.len(),
+        expected.len()
+    );
+    for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(a, e, "{field} mismatch at index {i}: {a} vs {e}");
+    }
+}
+
 pub fn assert_input_ids_eq(actual: &[u32], golden: &Value) {
     let expected: Vec<u32> = golden["input_ids"]
         .as_array()

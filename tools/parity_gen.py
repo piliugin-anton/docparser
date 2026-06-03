@@ -98,6 +98,74 @@ def update_vlm() -> None:
     write_json(GOLDENS / "vlm_preprocess_tasks.json", task_goldens)
 
 
+def update_vlm_generate(fixture_name: str = "ocr_demo2.jpg", max_new_tokens: int = 30) -> None:
+    """Greedy generation golden vs HF PaddleOCR-VL-1.6 (transformers==4.55.0)."""
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoProcessor
+        from PIL import Image
+    except ImportError as exc:
+        raise SystemExit(
+            "pip install 'transformers==4.55.0' torch pillow einops sentencepiece"
+        ) from exc
+
+    model_dir = MODELS / "PaddleOCR-VL-1.6"
+    image_path = FIXTURES / fixture_name
+    processor = AutoProcessor.from_pretrained(model_dir, trust_remote_code=True)
+    image = Image.open(image_path).convert("RGB")
+    messages = [
+        {
+            "role": "user",
+            "content": [{"type": "image"}, {"type": "text", "text": "OCR:"}],
+        }
+    ]
+    text = processor.apply_chat_template(messages, add_generation_prompt=True)
+    inputs = processor(text=text, images=image, return_tensors="pt")
+    prompt_len = inputs["input_ids"].shape[1]
+
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_dir, trust_remote_code=True, torch_dtype=torch.float32
+        )
+        model.eval()
+        eos = model.generation_config.eos_token_id
+        with torch.no_grad():
+            out = model.generate(
+                **inputs, max_new_tokens=max_new_tokens, do_sample=False
+            )
+        gen = out[0, prompt_len:].tolist()
+        if eos in gen:
+            gen = gen[: gen.index(eos)]
+        decoded = processor.tokenizer.decode(gen, skip_special_tokens=True).strip()
+        source = "hf_greedy"
+    except Exception as exc:
+        print(f"HF generate failed ({exc}); falling back to Rust vlm_write_golden")
+        import subprocess
+
+        subprocess.run(
+            ["cargo", "run", "-p", "paddleocr-vl", "--bin", "vlm_write_golden", "--release"],
+            cwd=ROOT,
+            check=True,
+        )
+        return
+
+    write_json(
+        GOLDENS / "vlm_generate_ocr_demo2.json",
+        {
+            "fixture": fixture_name,
+            "task": "ocr",
+            "prompt": "OCR:",
+            "max_new_tokens": max_new_tokens,
+            "eos_token_id": int(eos),
+            "input_ids_len": int(prompt_len),
+            "generated_token_ids": gen,
+            "text": decoded,
+            "text_sha256": hashlib.sha256(decoded.encode()).hexdigest(),
+            "source": source,
+        },
+    )
+
+
 def update_layout(fixture_name: str, golden_name: str) -> None:
     try:
         from transformers import AutoImageProcessor, PPDocLayoutV3ForObjectDetection
@@ -320,6 +388,7 @@ def main() -> None:
     run_vlm = args.vlm or not (args.layout or args.vlm or args.e2e or args.doc_prep)
     if run_vlm:
         update_vlm()
+        update_vlm_generate()
     if run_layout:
         update_layout_all()
     if args.doc_prep:

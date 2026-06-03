@@ -155,6 +155,36 @@ impl VlmModel {
             .generate(image, task, max_new_tokens)
     }
 
+    /// Greedy-decode token ids (parity vs HF goldens).
+    pub fn generate_token_ids(
+        &self,
+        image: &RgbImage,
+        task: VlmTask,
+        max_new_tokens: usize,
+    ) -> Result<Vec<u32>> {
+        let mut guard = self.runner()?;
+        guard
+            .as_mut()
+            .expect("runner initialized")
+            .generate_token_ids(image, task, max_new_tokens)
+    }
+
+    pub fn decode_token_ids(&self, tokens: &[u32]) -> Result<String> {
+        let guard = self.runner()?;
+        guard
+            .as_ref()
+            .expect("runner")
+            .decode_token_ids(tokens)
+    }
+
+    pub fn preprocess_grid_thw(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<Vec<u32>>> {
+        let guard = self.runner()?;
+        guard
+            .as_ref()
+            .expect("runner")
+            .preprocess_grid_thw(image, task)
+    }
+
     pub fn generate_dynamic(
         &self,
         image: &DynamicImage,

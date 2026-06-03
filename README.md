@@ -150,17 +150,21 @@ Fast checks (no weights):
 cargo test --workspace
 ```
 
-Slow parity tests (requires downloaded models):
+Slow parity tests (requires downloaded models; VLM generate ~5 min on CPU):
 
 ```bash
+# VLM only (avoid loading the full pipeline):
+RUN_SLOW=1 cargo test -p paddleocr-vl --test preprocess_parity --test generate_parity -- --ignored
+# All slow tests:
 RUN_SLOW=1 cargo test --workspace -- --ignored
 ```
 
 Regenerate golden files (optional, Python dev harness):
 
 ```bash
-pip install transformers torch pillow
+pip install 'transformers==4.55.0' torch pillow einops sentencepiece
 python tools/parity_gen.py --update-goldens --layout --vlm --doc-prep
+# If HF VLM generate fails, fall back to: cargo run -p paddleocr-vl --bin vlm_write_golden --release
 # optional end-to-end reference (paddleocr + GPU):
 # pip install "paddleocr[doc-parser]"
 # python tools/parity_gen.py --update-goldens --e2e

@@ -20,6 +20,11 @@ safetensors = "0.7"
 thiserror = "2"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 tracing = "0.1"
+sha2 = "0.10"
+
+[[bin]]
+name = "vlm_write_golden"
+path = "src/bin/vlm_write_golden.rs"
 
 [dev-dependencies]
 docparser-test-utils = { path = "../docparser-test-utils" }

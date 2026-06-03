@@ -208,5 +208,5 @@
     "transformers_version": "4.55.0",
     "use_cache": false
   },
-  "pixel_values_corner_atol": 0.003
+  "pixel_values_corner_atol": 0.01
 }

@@ -82,6 +82,7 @@ cargo test -p uvdoc --test load_inference -- --ignored
 # HF layout/VLM tensor parity (needs models; often RUN_SLOW)
 cargo test -p pp-doclayout-v3 --test postprocess_parity -- --ignored
 cargo test -p paddleocr-vl --test preprocess_parity -- --ignored
+cargo test -p paddleocr-vl --test generate_parity -- --ignored
 
 # Regenerate goldens (Python)
 pip install transformers torch pillow
