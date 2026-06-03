@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "Shared Candle weight loading and parity helpers for docparser"
 
+[features]
+mkl = ["candle-core/mkl", "candle-nn/mkl"]
+
 [dependencies]
 anyhow = "1"
 candle-core.workspace = true

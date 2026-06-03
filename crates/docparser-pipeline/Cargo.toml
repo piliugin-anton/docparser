@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+mkl = ["paddleocr-vl/mkl", "pp-doclayout-v3/mkl"]
+
 [dependencies]
 anyhow = "1"
 candle-core.workspace = true

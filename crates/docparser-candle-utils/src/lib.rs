@@ -3,8 +3,31 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use candle_core::{Device, DType};
+use candle_core::{Device, DType, Result as CandleResult, Tensor};
 use candle_nn::VarBuilder;
+
+fn contig(t: &Tensor) -> CandleResult<Tensor> {
+    if t.is_contiguous() {
+        Ok(t.clone())
+    } else {
+        t.contiguous()
+    }
+}
+
+/// Matmul for MKL: both operands must be contiguous (transpose/views are not).
+pub fn matmul(lhs: &Tensor, rhs: &Tensor) -> CandleResult<Tensor> {
+    contig(lhs)?.matmul(&contig(rhs)?)
+}
+
+/// `lhs @ transpose(rhs, dim1, dim2)`.
+pub fn matmul_transpose(lhs: &Tensor, rhs: &Tensor, dim1: usize, dim2: usize) -> CandleResult<Tensor> {
+    matmul(lhs, &rhs.transpose(dim1, dim2)?)
+}
+
+/// Back-compat alias for attention @ V.
+pub fn matmul_contig_rhs(lhs: &Tensor, rhs: &Tensor) -> CandleResult<Tensor> {
+    matmul(lhs, rhs)
+}
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 

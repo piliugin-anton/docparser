@@ -76,7 +76,8 @@ impl Decoder {
             let (_b, mask_dim, _) = mask_query_embed.dims3()?;
             let (_b2, _np, mask_h, mask_w) = mask_feat.dims4()?;
             let mf = mask_feat.flatten(2, 3)?;
-            let out_mask = mask_query_embed.matmul(&mf)?.reshape((batch, mask_dim, mask_h, mask_w))?;
+            let out_mask = docparser_candle_utils::matmul(&mask_query_embed, &mf)?
+                .reshape((batch, mask_dim, mask_h, mask_w))?;
             masks_list.push(out_mask);
 
             inter_logits.push(class_embed.forward(&out_query)?);
@@ -175,8 +176,10 @@ impl DecoderSelfAttention {
         let k = self.k.forward(&q_in)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
         let v = self.v.forward(hs)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
         let scale = (self.head_dim as f64).powf(-0.5);
-        let attn = candle_nn::ops::softmax_last_dim(&((q.matmul(&k.transpose(2, 3)?)? * scale)?))?;
-        let out = attn.matmul(&v)?.transpose(1, 2)?.reshape((b, s, h))?;
+        let attn = candle_nn::ops::softmax_last_dim(&((docparser_candle_utils::matmul_transpose(&q, &k, 2, 3)? * scale)?))?;
+        let out = docparser_candle_utils::matmul_contig_rhs(&attn, &v)?
+            .transpose(1, 2)?
+            .reshape((b, s, h))?;
         self.o.forward(&out)
     }
 }

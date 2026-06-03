@@ -50,6 +50,53 @@ cargo run -p docparser-api --release
 
 For production CPU inference, use a release build (workspace `profile.release`: thin LTO, `codegen-units = 1`). `.cargo/config.toml` enables `target-cpu=native` for the build host. Faster test links: `cargo test --profile release-fast --release`. Stronger LTO: `--profile release-lto`.
 
+### Optional: Intel MKL (faster CPU matmul)
+
+Candle can use [Intel oneAPI MKL](https://www.intel.com/content/www/us/en/docs/onemkl/get-started-guide/2023-0/overview.html) for BLAS-heavy ops. Use a **system** MKL install (`MKLROOT`); the bundled MKL 2020.1 crate is too old and fails to link (`undefined reference to hgemm_`).
+
+**1. Install oneAPI MKL** (Ubuntu/Debian example):
+
+```bash
+wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+  | sudo gpg --dearmor -o /usr/share/keyrings/intel-oneapi-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/intel-oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
+  | sudo tee /etc/apt/sources.list.d/oneAPI.list
+
+sudo apt update
+sudo apt install intel-oneapi-mkl-devel intel-oneapi-openmp
+```
+
+**2. Load oneAPI env before every build/run** (MKL alone does not add `libiomp5.so`):
+
+```bash
+source scripts/mkl-env.sh
+# or manually:
+# source /opt/intel/oneapi/mkl/latest/env/vars.sh
+# source /opt/intel/oneapi/compiler/latest/env/vars.sh
+# optional:
+# export MKL_THREADING_LAYER=GNU
+# export OMP_NUM_THREADS=8
+```
+
+**3. Build with the workspace `mkl` feature** (`MKLROOT` must be set so the linker uses system MKL, not the bundled 2020.1 libs):
+
+```bash
+source scripts/mkl-env.sh
+cargo build -p docparser-api --release --features mkl
+```
+
+The API binary embeds rpath entries for `$MKLROOT/lib` and the oneAPI compiler lib when `MKLROOT` is set at **build** time, so you can usually run `./target/release/docparser-api` without sourcing env again. If you see `libiomp5.so: cannot open shared object file`, either rebuild after `source scripts/mkl-env.sh`, or source that script before launching the binary.
+
+```bash
+source scripts/mkl-env.sh
+./target/release/docparser-api
+# or:
+source scripts/mkl-env.sh && cargo run -p docparser-api --release --features mkl
+```
+
+The feature is forwarded through `docparser-pipeline` → `paddleocr-vl`, `pp-doclayout-v3`, and `docparser-candle-utils`. Without `--features mkl`, inference uses Candle’s default CPU backend (no MKL required).
+
 ```bash
 cargo run -p docparser-api
 ```
@@ -127,6 +174,8 @@ python tools/parity_gen.py --update-goldens --layout --vlm
 | `MERGE_LAYOUT_BLOCKS` | profile default | Merge overlapping layout boxes |
 | `HF_TOKEN` | — | Optional HuggingFace auth |
 | `RUN_SLOW` | — | Enable ignored parity tests |
+| `OMP_NUM_THREADS` | — | MKL/OpenMP thread count when built with `--features mkl` |
+| `MKL_THREADING_LAYER` | — | Set to `GNU` if MKL reports threading errors on Linux |
 
 ## Alignment with official Paddle
 

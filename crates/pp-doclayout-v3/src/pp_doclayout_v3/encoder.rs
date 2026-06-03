@@ -511,8 +511,10 @@ impl SelfAttention {
         let k = self.k.forward(&q_in)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
         let v = self.v.forward(hs)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
         let scale = (self.head_dim as f64).powf(-0.5);
-        let attn = candle_nn::ops::softmax_last_dim(&((q.matmul(&k.transpose(2, 3)?)? * scale)?))?;
-        let out = attn.matmul(&v)?.transpose(1, 2)?.reshape((b, s, h))?;
+        let attn = candle_nn::ops::softmax_last_dim(&((docparser_candle_utils::matmul_transpose(&q, &k, 2, 3)? * scale)?))?;
+        let out = docparser_candle_utils::matmul_contig_rhs(&attn, &v)?
+            .transpose(1, 2)?
+            .reshape((b, s, h))?;
         self.o.forward(&out)
     }
 }

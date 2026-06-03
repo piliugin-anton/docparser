@@ -198,8 +198,7 @@ fn mask_logits_to_boxes(mask_query_embed: &Tensor, mask_feat: &Tensor) -> Result
     let (batch, _mask_dim, _) = mask_query_embed.dims3()?;
     let (_b, _np, mask_h, mask_w) = mask_feat.dims4()?;
     let mf = mask_feat.flatten(2, 3)?;
-    let masks = mask_query_embed
-        .matmul(&mf)?
+    let masks = docparser_candle_utils::matmul(mask_query_embed, &mf)?
         .reshape((batch, (), mask_h, mask_w))?;
     let masks = masks.gt(0.0)?.to_dtype(mask_query_embed.dtype())?;
     mask_to_box_coordinate(&masks)

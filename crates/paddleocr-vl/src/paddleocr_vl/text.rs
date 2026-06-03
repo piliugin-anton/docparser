@@ -854,8 +854,12 @@ impl Attention {
         // Compute attention (matches eager_attention_forward_ernie)
         let attn_output = {
             // attn_weights = query @ key^T * scaling
-            let attn_weights =
-                (query_states.matmul(&key_states.transpose(2, 3)?)? * self.softmax_scale)?;
+            let attn_weights = (docparser_candle_utils::matmul_transpose(
+                &query_states,
+                &key_states,
+                2,
+                3,
+            )? * self.softmax_scale)?;
 
             // Apply causal mask
             let attn_weights = match attention_mask {
@@ -872,7 +876,7 @@ impl Attention {
                 candle_nn::ops::softmax_last_dim(&attn_weights)?
             };
             // attn_output = attn_weights @ value
-            attn_weights.matmul(&value_states)?
+            docparser_candle_utils::matmul(&attn_weights, &value_states)?
         };
 
         // attn_output.transpose(1, 2).contiguous().reshape(...)
@@ -941,8 +945,12 @@ impl Attention {
         tensors.insert("v_repeated".to_string(), value_states_repeated.clone());
 
         // Attention scores: Q @ K^T * scaling (matches: torch.matmul(query, key_states.transpose(2, 3)) * scaling)
-        let attn_weights_pre =
-            (query_states.matmul(&key_states_repeated.transpose(2, 3)?)? * self.softmax_scale)?;
+        let attn_weights_pre = (docparser_candle_utils::matmul_transpose(
+            &query_states,
+            &key_states_repeated,
+            2,
+            3,
+        )? * self.softmax_scale)?;
         // Skip exporting full attention matrices - too large ([1, 16, 1357, 1357])
         // Just export a slice for verification: last row of attention for each head
         let seq_len = attn_weights_pre.dim(2)?;
@@ -972,7 +980,7 @@ impl Attention {
         );
 
         // Attention output (matches: torch.matmul(attn_weights, value_states))
-        let attn_output = attn_weights.matmul(&value_states_repeated)?;
+        let attn_output = docparser_candle_utils::matmul(&attn_weights, &value_states_repeated)?;
         tensors.insert("attn_output_pre_transpose".to_string(), attn_output.clone());
 
         // Reshape (matches: .transpose(1, 2).contiguous())

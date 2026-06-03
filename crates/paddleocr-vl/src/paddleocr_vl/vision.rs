@@ -323,9 +323,10 @@ fn chunked_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64) -> Result<T
 
     // For small sequences, use standard attention (fits in memory)
     if kv_seq <= ATTENTION_TILE_SIZE {
-        let attn_weights = (q.matmul(&k.transpose(2, 3)?)? * scale)?;
+        let attn_weights =
+            (docparser_candle_utils::matmul_transpose(q, k, 2, 3)? * scale)?;
         let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
-        return attn_weights.matmul(v);
+        return docparser_candle_utils::matmul_contig_rhs(&attn_weights, v);
     }
 
     // Chunked attention for large sequences using online softmax
@@ -359,7 +360,7 @@ fn chunked_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64) -> Result<T
             .to_dtype(DType::F32)?;
 
         // Compute scores for this tile: (1, heads, q_seq, tile_len)
-        let scores_tile = (q_f32.matmul(&k_tile.transpose(2, 3)?)? * scale)?;
+        let scores_tile = (docparser_candle_utils::matmul_transpose(&q_f32, &k_tile, 2, 3)? * scale)?;
 
         // Get tile max: (1, heads, q_seq, 1)
         let tile_max = scores_tile.max_keepdim(D::Minus1)?;
@@ -376,7 +377,8 @@ fn chunked_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64) -> Result<T
         let exp_scores = scores_tile.broadcast_sub(&new_max)?.exp()?;
 
         // Update accumulators
-        output_accum = (output_accum + exp_scores.matmul(&v_tile)?)?;
+        output_accum =
+            (output_accum + docparser_candle_utils::matmul(&exp_scores, &v_tile)?)?;
         sum_exps = (sum_exps + exp_scores.sum_keepdim(D::Minus1)?)?;
 
         max_scores = new_max;

@@ -28,7 +28,8 @@ impl GlobalPointer {
         let queries = qk.narrow(D::Minus2, 0, 1)?.squeeze(D::Minus2)?;
         let keys = qk.narrow(D::Minus2, 1, 1)?.squeeze(D::Minus2)?;
         let scale = (self.head_size as f64).sqrt();
-        let logits = (&queries.matmul(&keys.transpose(1, 2)?)? / scale)?;
+        let logits =
+            (&docparser_candle_utils::matmul_transpose(&queries, &keys, 1, 2)? / scale)?;
         let device = logits.device();
         let mut mask_data = vec![0f32; (sequence_length * sequence_length) as usize];
         for i in 0..sequence_length {
