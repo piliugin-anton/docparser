@@ -20,7 +20,7 @@ docparser uses the **PaddleOCR-VL** path (doc prep + layout + single VLM), not *
 ## Pipeline shape (aligned)
 
 ```text
-image → PP-LCNet doc ori (rotate) → UVDoc (rectify) → PP-DocLayoutV3 → (optional NMS) → merge_layout_blocks → crop → PaddleOCR-VL-1.6 per region → JSON/Markdown
+image → PP-LCNet doc ori (rotate) → UVDoc (rectify) → PP-DocLayoutV3 → layout postprocess (NMS, merge bboxes, unclip) → filter_overlap_boxes → crop → merge_layout_blocks (text groups) → PaddleOCR-VL-1.6 per region → JSON/Markdown
 ```
 
 **Note:** PaddleX YAML sets `use_doc_preprocessor: false` at the pipeline level. docparser runs orientation + unwarping **by default** (opt-out via env). See [alignment_defaults.md](alignment_defaults.md).
@@ -31,9 +31,10 @@ image → PP-LCNet doc ori (rotate) → UVDoc (rectify) → PP-DocLayoutV3 → (
 |-----------|--------------|-------------------|-------|
 | `layout_threshold` | `0.3` | `0.3` | HF parity tests use **0.5** (see below) |
 | `layout_nms` | `true` | `true` | IoU NMS after detection |
-| `layout_unclip_ratio` | `[1.0, 1.0]` | `1.0` | Crop padding = box size × ratio |
-| `merge_layout_blocks` | `true` | `true` | |
-| `layout_merge_bboxes_mode` | per-class map | per-class via `merge_mode_for_label` | See [alignment_defaults.md](alignment_defaults.md) |
+| `layout_unclip_ratio` | `[1.0, 1.0]` | `1.0` | Box scale in layout postprocess (`1.0` = unchanged) |
+| `merge_layout_blocks` | `true` | `true` | Text crop merge (`merge_blocks`), not bbox merge |
+| `crop_padding_ratio` | — | `0.0` | Optional extra crop padding (local only) |
+| `layout_merge_bboxes_mode` | per-class map | per-class via `merge_mode_for_label` | Containment merge in layout postprocess |
 | `markdown_ignore_labels` | 7 labels | 7 labels (`official_markdown_ignore_labels`) | |
 | `use_chart_recognition` | `false` | `false` | |
 | `use_seal_recognition` | `false` | `false` | |
@@ -61,7 +62,7 @@ From PaddleX YAML, using label names in our `config.json` (`formula` = Paddle `d
 | `large` | `chart`, `formula`, `display_formula`, `doc_title`, `inline_formula`, `paragraph_title` |
 | `union` | all other layout classes |
 
-Implemented in `merge_mode_for_label()` in `crates/docparser-pipeline/src/layout_merge.rs`.
+Implemented in `merge_mode_for_label()` / `apply_layout_merge_bboxes()` in `crates/docparser-pipeline/src/layout_merge.rs` (layout postprocess). `filter_overlap_boxes` in `layout_filter.rs`; text grouping in `block_merge.rs`.
 
 ## Not implemented (by design)
 

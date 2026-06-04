@@ -180,10 +180,11 @@ python tools/parity_gen.py --update-goldens --layout --vlm --doc-prep
 | `MAX_TOKENS` | `4096` | VLM decode limit |
 | `USE_DOC_ORIENTATION_CLASSIFY` | `true` | Rotate page via PP-LCNet doc ori |
 | `USE_DOC_UNWARPING` | `true` | Rectify curved pages via UVDoc |
-| `LAYOUT_UNCLIP_RATIO` | `1.0` | Crop expansion ratio |
+| `LAYOUT_UNCLIP_RATIO` | `1.0` | Scale layout boxes in postprocess (`1.0` = unchanged) |
+| `CROP_PADDING_RATIO` | `0.0` | Extra symmetric crop padding (debug; not PaddleX) |
 | `LAYOUT_THRESHOLD` | `0.3` | Layout score threshold |
 | `LAYOUT_NMS` | `true` | Enable layout NMS |
-| `MERGE_LAYOUT_BLOCKS` | `true` | Merge overlapping layout boxes |
+| `MERGE_LAYOUT_BLOCKS` | `true` | Merge adjacent text crops for VLM (`merge_blocks`) |
 | `HF_TOKEN` | — | Optional HuggingFace auth |
 | `RUN_SLOW` | — | Enable ignored parity tests |
 | `OMP_NUM_THREADS` | — | MKL/OpenMP thread count when built with `--features mkl` |

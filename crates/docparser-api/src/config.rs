@@ -36,6 +36,11 @@ impl Default for ApiConfig {
                 pipeline.layout_unclip_ratio = f;
             }
         }
+        if let Ok(v) = std::env::var("CROP_PADDING_RATIO") {
+            if let Ok(f) = v.parse() {
+                pipeline.crop_padding_ratio = f;
+            }
+        }
         if let Ok(v) = std::env::var("LAYOUT_THRESHOLD") {
             if let Ok(f) = v.parse() {
                 pipeline.layout_threshold = f;

@@ -1,0 +1,365 @@
+//! PaddleX `merge_blocks`: merge adjacent text crops into composite VLM images.
+
+use image::{imageops, Rgb, RgbImage};
+
+use pp_doclayout_v3::LayoutElement;
+
+pub const IMAGE_LABELS: &[&str] = &["image", "header_image", "footer_image"];
+
+pub fn non_merge_labels(
+    use_chart_recognition: bool,
+    use_seal_recognition: bool,
+    use_ocr_for_image_block: bool,
+) -> Vec<String> {
+    let mut labels: Vec<String> = if use_ocr_for_image_block {
+        vec![]
+    } else {
+        IMAGE_LABELS.iter().map(|s| s.to_string()).collect()
+    };
+    labels.push("table".into());
+    if use_chart_recognition {
+        labels.push("chart".into());
+    }
+    if use_seal_recognition {
+        labels.push("seal".into());
+    }
+    labels
+}
+
+#[derive(Debug, Clone)]
+pub struct CropBlock {
+    pub element: LayoutElement,
+    pub crop: Option<RgbImage>,
+    pub group_id: Option<usize>,
+}
+
+pub fn calculate_projection_overlap_ratio(
+    bbox1: [f32; 4],
+    bbox2: [f32; 4],
+    direction: &str,
+) -> f32 {
+    let (start_index, end_index) = if direction == "horizontal" {
+        (0usize, 2usize)
+    } else {
+        (1, 3)
+    };
+    let intersection_start = bbox1[start_index].max(bbox2[start_index]);
+    let intersection_end = bbox1[end_index].min(bbox2[end_index]);
+    let overlap = intersection_end - intersection_start;
+    if overlap <= 0.0 {
+        return 0.0;
+    }
+    let ref_width = bbox1[end_index]
+        .max(bbox2[end_index])
+        - bbox1[start_index].min(bbox2[start_index]);
+    if ref_width > 0.0 {
+        overlap / ref_width
+    } else {
+        0.0
+    }
+}
+
+pub fn calculate_overlap_ratio(bbox1: [f32; 4], bbox2: [f32; 4]) -> f32 {
+    let x_min_inter = bbox1[0].max(bbox2[0]);
+    let y_min_inter = bbox1[1].max(bbox2[1]);
+    let x_max_inter = bbox1[2].min(bbox2[2]);
+    let y_max_inter = bbox1[3].min(bbox2[3]);
+    let inter_w = (x_max_inter - x_min_inter).max(0.0);
+    let inter_h = (y_max_inter - y_min_inter).max(0.0);
+    let inter_area = inter_w * inter_h;
+    let a1 = (bbox1[2] - bbox1[0]).max(0.0) * (bbox1[3] - bbox1[1]).max(0.0);
+    let a2 = (bbox2[2] - bbox2[0]).max(0.0) * (bbox2[3] - bbox2[1]).max(0.0);
+    let union = a1 + a2 - inter_area;
+    if union <= 0.0 {
+        0.0
+    } else {
+        inter_area / union
+    }
+}
+
+fn calc_merged_wh(images: &[RgbImage]) -> (u32, u32) {
+    let w = images.iter().map(|i| i.width()).max().unwrap_or(0);
+    let h: u32 = images.iter().map(|i| i.height()).sum();
+    (w, h)
+}
+
+fn merge_images(images: &[RgbImage], aligns: &[&str]) -> RgbImage {
+    if images.is_empty() {
+        return RgbImage::new(1, 1);
+    }
+    if images.len() == 1 {
+        return images[0].clone();
+    }
+    let mut x_offsets = vec![0u32; images.len()];
+    let mut merged_w = images[0].width();
+
+    for i in 1..images.len() {
+        let img2_w = images[i].width();
+        let step_w = merged_w.max(img2_w);
+        let align = aligns.get(i - 1).copied().unwrap_or("center");
+        let (x1, x2) = match align {
+            "center" => ((step_w - merged_w) / 2, (step_w - img2_w) / 2),
+            "right" => (step_w - merged_w, step_w - img2_w),
+            _ => (0, 0),
+        };
+        for k in 0..i {
+            x_offsets[k] += x1;
+        }
+        x_offsets[i] = x2;
+        merged_w = step_w;
+    }
+
+    let total_h: u32 = images.iter().map(|i| i.height()).sum();
+    let mut canvas = RgbImage::from_pixel(merged_w, total_h, Rgb([255, 255, 255]));
+    let mut y_offset = 0u32;
+    for (i, img) in images.iter().enumerate() {
+        imageops::overlay(&mut canvas, img, i64::from(x_offsets[i]), i64::from(y_offset));
+        y_offset += img.height();
+    }
+    canvas
+}
+
+fn is_aligned(a1: f32, a2: f32) -> bool {
+    (a1 - a2).abs() <= 5.0
+}
+
+fn get_alignment(block_bbox: [f32; 4], prev_bbox: [f32; 4]) -> &'static str {
+    if is_aligned(block_bbox[0], prev_bbox[0]) {
+        "left"
+    } else if is_aligned(block_bbox[2], prev_bbox[2]) {
+        "right"
+    } else {
+        "center"
+    }
+}
+
+fn overlap_with_other_box(
+    block_idx: usize,
+    prev_idx: usize,
+    blocks: &[CropBlock],
+    non_merge: &[String],
+) -> bool {
+    let prev_bbox = blocks[prev_idx].element.bbox;
+    let block_bbox = blocks[block_idx].element.bbox;
+    let min_box = [
+        prev_bbox[0].min(block_bbox[0]),
+        prev_bbox[1].min(block_bbox[1]),
+        prev_bbox[2].max(block_bbox[2]),
+        prev_bbox[3].max(block_bbox[3]),
+    ];
+    let non_merge_set: std::collections::HashSet<&str> =
+        non_merge.iter().map(|s| s.as_str()).collect();
+    for (idx, other) in blocks.iter().enumerate() {
+        if idx == block_idx || idx == prev_idx {
+            continue;
+        }
+        if non_merge_set.contains(other.element.label.as_str())
+            && calculate_overlap_ratio(min_box, other.element.bbox) > 0.0
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Merge adjacent text blocks into composite crops (PaddleX `merge_blocks`).
+pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<CropBlock> {
+    if blocks.is_empty() {
+        return blocks;
+    }
+
+    let non_merge_set: std::collections::HashSet<&str> =
+        non_merge_labels.iter().map(|s| s.as_str()).collect();
+
+    let mut non_merge_blocks: std::collections::HashMap<usize, CropBlock> =
+        std::collections::HashMap::new();
+    let mut blocks_to_merge: Vec<(usize, usize)> = Vec::new();
+
+    for (idx, block) in blocks.iter().enumerate() {
+        if non_merge_set.contains(block.element.label.as_str()) {
+            non_merge_blocks.insert(idx, block.clone());
+        } else {
+            blocks_to_merge.push((idx, idx));
+        }
+    }
+
+    let mut merged_groups: Vec<(Vec<usize>, Vec<&'static str>)> = Vec::new();
+    let mut current_group: Vec<usize> = Vec::new();
+    let mut current_aligns: Vec<&'static str> = Vec::new();
+
+    for i in 0..blocks_to_merge.len() {
+        let (idx, _) = blocks_to_merge[i];
+        if current_group.is_empty() {
+            current_group.push(idx);
+            continue;
+        }
+
+        let prev_idx = blocks_to_merge[i - 1].0;
+        let prev_block = &blocks[prev_idx];
+        let block = &blocks[idx];
+        let prev_bbox = prev_block.element.bbox;
+        let block_bbox = block.element.bbox;
+        let block_label = block.element.label.as_str();
+        let prev_label = prev_block.element.label.as_str();
+
+        let iou_h = calculate_projection_overlap_ratio(block_bbox, prev_bbox, "horizontal");
+        let is_cross = iou_h == 0.0
+            && block_label == "text"
+            && prev_label == "text"
+            && block_bbox[0] > prev_bbox[2]
+            && block_bbox[1] < prev_bbox[3]
+            && (block_bbox[0] - prev_bbox[2])
+                < (prev_bbox[2] - prev_bbox[0]).max(block_bbox[2] - block_bbox[0]) * 0.3;
+
+        let is_updown_align = iou_h > 0.0
+            && block_label == "text"
+            && prev_label == "text"
+            && block_bbox[3] >= prev_bbox[1]
+            && (block_bbox[1] - prev_bbox[3]).abs()
+                < (prev_bbox[3] - prev_bbox[1])
+                    .max(block_bbox[3] - block_bbox[1])
+                    * 0.5
+            && (is_aligned(block_bbox[0], prev_bbox[0]) ^ is_aligned(block_bbox[2], prev_bbox[2]))
+            && overlap_with_other_box(idx, prev_idx, &blocks, non_merge_labels);
+
+        let align_mode = if is_cross {
+            Some("center")
+        } else if is_updown_align {
+            Some(get_alignment(block_bbox, prev_bbox))
+        } else {
+            None
+        };
+
+        if align_mode.is_some() {
+            current_group.push(idx);
+            if let Some(a) = align_mode {
+                current_aligns.push(a);
+            }
+        } else {
+            merged_groups.push((current_group.clone(), current_aligns.clone()));
+            current_group = vec![idx];
+            current_aligns.clear();
+        }
+    }
+    if !current_group.is_empty() {
+        merged_groups.push((current_group, current_aligns));
+    }
+
+    let mut group_ranges: Vec<(usize, usize, Vec<usize>, Vec<&'static str>)> = Vec::new();
+    for (group_indices, aligns) in merged_groups {
+        let start = *group_indices.iter().min().unwrap();
+        let end = *group_indices.iter().max().unwrap();
+        group_ranges.push((start, end, group_indices, aligns));
+    }
+
+    let mut result_blocks: Vec<CropBlock> = Vec::new();
+    let mut used_indices = std::collections::HashSet::new();
+    let mut idx = 0usize;
+
+    while idx < blocks.len() {
+        let mut group_found = false;
+        for (start, end, group_indices, aligns) in &group_ranges {
+            if idx == *start && group_indices.iter().all(|i| !used_indices.contains(i)) {
+                group_found = true;
+                let imgs: Vec<RgbImage> = group_indices
+                    .iter()
+                    .filter_map(|&gi| blocks[gi].crop.clone())
+                    .collect();
+                let (w, h) = calc_merged_wh(&imgs);
+                let aspect_ratio = if w > 0 {
+                    h as f32 / w as f32
+                } else {
+                    f32::INFINITY
+                };
+
+                if aspect_ratio >= 3.0 {
+                    for &block_idx in group_indices {
+                        let mut b = blocks[block_idx].clone();
+                        b.group_id = None;
+                        result_blocks.push(b);
+                        used_indices.insert(block_idx);
+                    }
+                } else if !imgs.is_empty() {
+                    let merged_img = merge_images(&imgs, aligns);
+                    for (j, &block_idx) in group_indices.iter().enumerate() {
+                        let mut b = blocks[block_idx].clone();
+                        if j == 0 {
+                            b.crop = Some(merged_img.clone());
+                        } else {
+                            b.crop = None;
+                        }
+                        b.group_id = Some(group_indices[0]);
+                        result_blocks.push(b);
+                        used_indices.insert(block_idx);
+                    }
+                } else {
+                    for &block_idx in group_indices {
+                        result_blocks.push(blocks[block_idx].clone());
+                        used_indices.insert(block_idx);
+                    }
+                }
+
+                let mut insert_list = Vec::new();
+                for n_idx in (start + 1)..=*end {
+                    if non_merge_blocks.contains_key(&n_idx) {
+                        insert_list.push(n_idx);
+                    }
+                }
+                for n_idx in insert_list {
+                    result_blocks.push(non_merge_blocks[&n_idx].clone());
+                    used_indices.insert(n_idx);
+                }
+                idx = end + 1;
+                break;
+            }
+        }
+        if group_found {
+            continue;
+        }
+        if let Some(nm) = non_merge_blocks.get(&idx) {
+            if !used_indices.contains(&idx) {
+                result_blocks.push(nm.clone());
+                used_indices.insert(idx);
+            }
+        } else if !used_indices.contains(&idx) {
+            result_blocks.push(blocks[idx].clone());
+            used_indices.insert(idx);
+        }
+        idx += 1;
+    }
+
+    result_blocks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pp_doclayout_v3::LayoutElement;
+
+    fn block(id: usize, label: &str, h: u32) -> CropBlock {
+        CropBlock {
+            element: LayoutElement {
+                id,
+                order: Some(id),
+                label: label.into(),
+                score: 0.9,
+                bbox: [0.0, 0.0, 100.0, h as f32],
+                text: None,
+            },
+            crop: Some(RgbImage::new(50, h)),
+            group_id: None,
+        }
+    }
+
+    #[test]
+    fn tall_merge_splits_by_aspect_ratio() {
+        let blocks = vec![
+            block(0, "text", 200),
+            block(1, "text", 200),
+            block(2, "text", 200),
+        ];
+        let nm = non_merge_labels(false, false, false);
+        let out = merge_blocks(blocks, &nm);
+        assert!(out.iter().all(|b| b.group_id.is_none()));
+    }
+}

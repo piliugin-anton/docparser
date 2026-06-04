@@ -1,6 +1,9 @@
+mod block_merge;
 mod doc_preprocess;
+mod layout_filter;
 mod layout_merge;
 mod layout_nms;
+mod layout_postprocess;
 mod markdown;
 
 use std::path::{Path, PathBuf};
@@ -13,11 +16,19 @@ use pp_doclayout_v3::LayoutModel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub use block_merge::{
+    merge_blocks, non_merge_labels, CropBlock, IMAGE_LABELS,
+};
 pub use doc_preprocess::{preprocess_document, DocPreprocessor, DocPreprocessorConfig};
+pub use layout_filter::filter_overlap_boxes;
 pub use layout_merge::{
-    merge_layout_blocks, merge_layout_blocks_with_mode_fn, merge_mode_for_label, MergeBboxesMode,
+    apply_layout_merge_bboxes, merge_layout_blocks, merge_layout_blocks_with_mode_fn,
+    merge_mode_for_label, MergeBboxesMode,
 };
 pub use layout_nms::layout_nms;
+pub use layout_postprocess::{
+    apply_layout_postprocess, clamp_bbox_to_image, unclip_bbox, LayoutPostprocessConfig,
+};
 pub use markdown::{blocks_to_markdown, official_markdown_ignore_labels};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +47,8 @@ pub struct Block {
     pub bbox: [f32; 4],
     pub score: f32,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,10 +75,14 @@ pub struct DocumentParseResult {
 pub struct PipelineConfig {
     pub max_tokens: usize,
     pub layout_threshold: f32,
+    /// Scales layout box W/H around center in layout postprocess (`1.0` = unchanged).
     pub layout_unclip_ratio: f32,
     pub layout_nms: bool,
     pub layout_nms_iou: f32,
+    /// PaddleX text crop merge (`merge_blocks`), not layout bbox merge.
     pub merge_layout_blocks: bool,
+    /// Extra symmetric padding on crop only (not Paddle-aligned); `0.0` = exact crop.
+    pub crop_padding_ratio: f32,
     pub markdown_ignore_labels: Vec<String>,
     pub use_chart_recognition: bool,
     pub use_seal_recognition: bool,
@@ -83,6 +100,7 @@ impl Default for PipelineConfig {
             layout_nms: true,
             layout_nms_iou: 0.5,
             merge_layout_blocks: true,
+            crop_padding_ratio: 0.0,
             markdown_ignore_labels: official_markdown_ignore_labels(),
             use_chart_recognition: false,
             use_seal_recognition: false,
@@ -183,13 +201,17 @@ impl DocumentPipeline {
         let rgb = image.to_rgb8();
 
         let mut layout_elements = self.layout.detect(&rgb)?;
-        if self.config.layout_nms {
-            layout_elements = layout_nms(layout_elements, self.config.layout_nms_iou);
-        }
-        if self.config.merge_layout_blocks {
-            layout_elements =
-                merge_layout_blocks_with_mode_fn(layout_elements, merge_mode_for_label);
-        }
+        layout_elements = apply_layout_postprocess(
+            layout_elements,
+            width,
+            height,
+            LayoutPostprocessConfig {
+                layout_nms: self.config.layout_nms,
+                layout_nms_iou: self.config.layout_nms_iou,
+                layout_unclip_ratio: self.config.layout_unclip_ratio,
+            },
+        );
+        layout_elements = filter_overlap_boxes(layout_elements);
 
         if layout_elements.is_empty() {
             tracing::debug!("no layout boxes above threshold; using full-image VLM fallback");
@@ -209,17 +231,41 @@ impl DocumentPipeline {
                 .then_with(|| a.id.cmp(&b.id))
         });
 
-        let mut blocks = Vec::new();
-        for el in &layout_elements {
-            let content = if should_run_vlm_for_label(
-                &el.label,
+        let mut crop_blocks: Vec<CropBlock> = layout_elements
+            .into_iter()
+            .map(|el| {
+                let crop = crop_bbox(&rgb, el.bbox, self.config.crop_padding_ratio);
+                CropBlock {
+                    element: el,
+                    crop: Some(crop),
+                    group_id: None,
+                }
+            })
+            .collect();
+
+        if self.config.merge_layout_blocks {
+            let nm = non_merge_labels(
                 self.config.use_chart_recognition,
                 self.config.use_seal_recognition,
                 self.config.use_ocr_for_image_block,
-            ) {
-                let crop = crop_bbox(&rgb, el.bbox, self.config.layout_unclip_ratio);
+            );
+            crop_blocks = merge_blocks(crop_blocks, &nm);
+        }
+
+        let mut blocks = Vec::new();
+        for cb in &crop_blocks {
+            let el = &cb.element;
+            let content = if cb.crop.is_some()
+                && should_run_vlm_for_label(
+                    &el.label,
+                    self.config.use_chart_recognition,
+                    self.config.use_seal_recognition,
+                    self.config.use_ocr_for_image_block,
+                )
+            {
+                let crop = cb.crop.as_ref().unwrap();
                 let task = task_for_layout_label(&el.label);
-                self.vlm.generate(&crop, task, self.config.max_tokens)?
+                self.vlm.generate(crop, task, self.config.max_tokens)?
             } else {
                 String::new()
             };
@@ -230,6 +276,7 @@ impl DocumentPipeline {
                 bbox: el.bbox,
                 score: el.score,
                 content,
+                group_id: cb.group_id,
             });
         }
 
@@ -276,17 +323,24 @@ impl DocumentPipeline {
     }
 }
 
-fn crop_bbox(image: &RgbImage, bbox: [f32; 4], unclip_ratio: f32) -> RgbImage {
+/// Crop a region from the image. `padding_ratio` adds symmetric padding per side (local debug knob).
+fn crop_bbox(image: &RgbImage, bbox: [f32; 4], padding_ratio: f32) -> RgbImage {
     let (w, h) = image.dimensions();
-    let [x1, y1, x2, y2] = bbox;
-    let bw = (x2 - x1).max(1.0);
-    let bh = (y2 - y1).max(1.0);
-    let pad_x = bw * unclip_ratio;
-    let pad_y = bh * unclip_ratio;
-    let x1 = (x1 - pad_x).max(0.0).floor() as u32;
-    let y1 = (y1 - pad_y).max(0.0).floor() as u32;
-    let x2 = (x2 + pad_x).min(w as f32).ceil() as u32;
-    let y2 = (y2 + pad_y).min(h as f32).ceil() as u32;
+    let [mut x1, mut y1, mut x2, mut y2] = bbox;
+    if padding_ratio > 0.0 {
+        let bw = (x2 - x1).max(1.0);
+        let bh = (y2 - y1).max(1.0);
+        let pad_x = bw * padding_ratio;
+        let pad_y = bh * padding_ratio;
+        x1 -= pad_x;
+        y1 -= pad_y;
+        x2 += pad_x;
+        y2 += pad_y;
+    }
+    let x1 = x1.max(0.0).floor() as u32;
+    let y1 = y1.max(0.0).floor() as u32;
+    let x2 = x2.min(w as f32).ceil() as u32;
+    let y2 = y2.min(h as f32).ceil() as u32;
     image::imageops::crop_imm(
         image,
         x1,

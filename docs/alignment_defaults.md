@@ -12,10 +12,11 @@ See also:
 | Parameter | docparser default | PaddleX YAML | Notes |
 |-----------|-------------------|--------------|-------|
 | `layout_threshold` | `0.3` | `0.3` | HF parity tests use **0.5** |
-| `layout_unclip_ratio` | `1.0` | `[1.0, 1.0]` | Crop expansion = box size × ratio |
+| `layout_unclip_ratio` | `1.0` | `[1.0, 1.0]` | Scales layout box W/H around center in postprocess (`1.0` = unchanged) |
 | `layout_nms` | `true` | `true` | IoU NMS after layout detection |
-| `merge_layout_blocks` | `true` | `true` | |
-| `layout_merge_bboxes_mode` | per-class (`merge_mode_for_label`) | per-class map | `large` for chart/formula/titles; `union` otherwise |
+| `merge_layout_blocks` | `true` | `true` | PaddleX `merge_blocks`: adjacent text crop grouping for VLM |
+| `crop_padding_ratio` | `0.0` | — | Optional extra symmetric crop padding (local debug; not in PaddleX) |
+| `layout_merge_bboxes_mode` | per-class (`merge_mode_for_label`) | per-class map | Containment merge in layout postprocess; `large` for chart/formula/titles |
 | `use_doc_orientation_classify` | **`true`** | `false` | PP-LCNet_x1_0_doc_ori |
 | `use_doc_unwarping` | **`true`** | `false` | UVDoc |
 | `use_chart_recognition` | `false` | `false` | |

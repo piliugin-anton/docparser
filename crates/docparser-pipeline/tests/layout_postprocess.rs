@@ -1,6 +1,6 @@
 use docparser_pipeline::{
-    layout_nms, merge_layout_blocks, merge_layout_blocks_with_mode_fn, merge_mode_for_label,
-    MergeBboxesMode,
+    filter_overlap_boxes, layout_nms, merge_layout_blocks, merge_layout_blocks_with_mode_fn,
+    merge_mode_for_label, unclip_bbox, MergeBboxesMode,
 };
 use pp_doclayout_v3::LayoutElement;
 
@@ -66,4 +66,21 @@ fn official_v16_merge_mode_for_display_formula() {
         merge_mode_for_label("display_formula"),
         MergeBboxesMode::Large
     );
+}
+
+#[test]
+fn unclip_ratio_one_is_identity() {
+    let b = [10.0, 20.0, 30.0, 40.0];
+    let out = unclip_bbox(b, (1.0, 1.0));
+    assert!((out[0] - b[0]).abs() < 1e-5);
+}
+
+#[test]
+fn filter_overlap_drops_nested_text() {
+    let elements = vec![
+        el(0, "text", 0.9, [0.0, 0.0, 100.0, 100.0]),
+        el(1, "text", 0.85, [10.0, 10.0, 30.0, 30.0]),
+    ];
+    let out = filter_overlap_boxes(elements);
+    assert_eq!(out.len(), 1);
 }
