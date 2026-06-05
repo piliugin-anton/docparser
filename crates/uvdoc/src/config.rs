@@ -1,7 +1,17 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use serde_json::Value;
+
+fn json_u64(value: &Value, field: &str) -> Result<usize> {
+    value
+        .as_u64()
+        .map(|n| n as usize)
+        .ok_or_else(|| {
+            anyhow::anyhow!("config field `{field}`: expected unsigned integer, got {value}")
+        })
+}
 
 #[derive(Debug, Clone)]
 pub struct UvdocBackboneConfig {
@@ -55,9 +65,12 @@ impl UvdocConfig {
         for stage in &root.backbone_config.resnet_configs {
             let mut specs = Vec::new();
             for item in stage {
-                let in_ch = item[0].as_u64().unwrap() as usize;
-                let out_ch = item[1].as_u64().unwrap() as usize;
-                let dilation = item[2].as_u64().unwrap() as usize;
+                if item.len() < 4 {
+                    bail!("resnet_configs entry must have at least 4 fields");
+                }
+                let in_ch = json_u64(&item[0], "resnet_configs.in_ch")?;
+                let out_ch = json_u64(&item[1], "resnet_configs.out_ch")?;
+                let dilation = json_u64(&item[2], "resnet_configs.dilation")?;
                 let downsample = item[3].as_bool().unwrap_or(false);
                 specs.push([in_ch, out_ch, dilation, downsample as usize]);
             }

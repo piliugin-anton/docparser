@@ -1,7 +1,12 @@
+#![deny(unsafe_code)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+mod error;
+
+pub use error::{LayoutError, Result};
+use anyhow::Context;
 use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +90,10 @@ impl LayoutModel {
         let model_dir = model_dir.as_ref().to_path_buf();
         let weights = model_dir.join("model.safetensors");
         if !weights.is_file() {
-            bail!("missing layout weights at {}", weights.display());
+            return Err(LayoutError::Message(format!(
+                "missing layout weights at {}",
+                weights.display()
+            )));
         }
         let mut config = LayoutConfig::from_dir(&model_dir)?;
         config.detection_threshold = detection_threshold;
@@ -100,7 +108,7 @@ impl LayoutModel {
         let mut guard = self
             .runner
             .lock()
-            .map_err(|_| anyhow::anyhow!("layout runner lock poisoned"))?;
+            .map_err(|_| LayoutError::LockPoisoned)?;
         if guard.is_none() {
             *guard = Some(model::LayoutRunner::load(
                 &self.model_dir,
@@ -108,6 +116,14 @@ impl LayoutModel {
             )?);
         }
         Ok(guard)
+    }
+
+    fn runner_ref<'a>(
+        guard: &'a std::sync::MutexGuard<'_, Option<model::LayoutRunner>>,
+    ) -> Result<&'a model::LayoutRunner> {
+        guard
+            .as_ref()
+            .ok_or(LayoutError::RunnerNotLoaded)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -129,10 +145,12 @@ impl LayoutModel {
     ) -> Result<Vec<LayoutElement>> {
         let t = threshold.unwrap_or(self.config.detection_threshold);
         if (t - self.config.detection_threshold).abs() > f32::EPSILON {
-            return model::LayoutRunner::load(&self.model_dir, t)?.detect(image);
+            return model::LayoutRunner::load(&self.model_dir, t)?
+                .detect(image)
+                .map_err(Into::into);
         }
         let guard = self.runner()?;
-        guard.as_ref().expect("runner").detect(image)
+        Self::runner_ref(&guard)?.detect(image).map_err(Into::into)
     }
 
     pub fn detect_path(&self, path: impl AsRef<Path>) -> Result<Vec<LayoutElement>> {
@@ -144,7 +162,7 @@ impl LayoutModel {
 }
 
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
-    docparser_candle_utils::list_safetensor_keys(model_dir)
+    Ok(docparser_candle_utils::list_safetensor_keys(model_dir)?)
 }
 
 /// Resolve label name from id using a model directory's `config.json`.

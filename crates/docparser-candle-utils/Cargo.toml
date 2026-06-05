@@ -9,7 +9,7 @@ description = "Shared Candle weight loading and parity helpers for docparser"
 mkl = ["candle-core/mkl", "candle-nn/mkl"]
 
 [dependencies]
-anyhow = "1"
+thiserror = "2"
 candle-core.workspace = true
 candle-nn.workspace = true
 safetensors = "0.7"

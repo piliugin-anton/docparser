@@ -3,3 +3,4 @@
 /tests/fixtures/*.jpg
 !/tests/fixtures/.gitkeep
 .env
+AGENTS.md

@@ -1,6 +1,11 @@
+#![deny(unsafe_code)]
+
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+mod error;
+
+pub use error::{Result, VlmError};
+use anyhow::Context;
 use candle_core::Device;
 use image::{DynamicImage, RgbImage};
 use serde::{Deserialize, Serialize};
@@ -108,7 +113,10 @@ impl VlmModel {
         let model_dir = model_dir.as_ref().to_path_buf();
         let weights = model_dir.join("model.safetensors");
         if !weights.is_file() {
-            bail!("missing model weights at {}", weights.display());
+            return Err(VlmError::Message(format!(
+                "missing model weights at {}",
+                weights.display()
+            )));
         }
         let config = VlmConfig::from_dir(&model_dir)?;
         Ok(Self {
@@ -123,11 +131,27 @@ impl VlmModel {
         let mut guard = self
             .runner
             .lock()
-            .map_err(|_| anyhow::anyhow!("vlm runner lock poisoned"))?;
+            .map_err(|_| VlmError::LockPoisoned)?;
         if guard.is_none() {
             *guard = Some(model::VlmRunner::load(&self.model_dir, self.device.clone())?);
         }
         Ok(guard)
+    }
+
+    fn runner_mut<'a>(
+        guard: &'a mut std::sync::MutexGuard<'_, Option<model::VlmRunner>>,
+    ) -> Result<&'a mut model::VlmRunner> {
+        guard
+            .as_mut()
+            .ok_or(VlmError::RunnerNotLoaded)
+    }
+
+    fn runner_ref<'a>(
+        guard: &'a std::sync::MutexGuard<'_, Option<model::VlmRunner>>,
+    ) -> Result<&'a model::VlmRunner> {
+        guard
+            .as_ref()
+            .ok_or(VlmError::RunnerNotLoaded)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -149,10 +173,9 @@ impl VlmModel {
         max_new_tokens: usize,
     ) -> Result<String> {
         let mut guard = self.runner()?;
-        guard
-            .as_mut()
-            .expect("runner initialized")
+        Self::runner_mut(&mut guard)?
             .generate(image, task, max_new_tokens)
+            .map_err(Into::into)
     }
 
     /// Greedy-decode token ids (parity vs HF goldens).
@@ -163,26 +186,21 @@ impl VlmModel {
         max_new_tokens: usize,
     ) -> Result<Vec<u32>> {
         let mut guard = self.runner()?;
-        guard
-            .as_mut()
-            .expect("runner initialized")
+        Self::runner_mut(&mut guard)?
             .generate_token_ids(image, task, max_new_tokens)
+            .map_err(Into::into)
     }
 
     pub fn decode_token_ids(&self, tokens: &[u32]) -> Result<String> {
         let guard = self.runner()?;
-        guard
-            .as_ref()
-            .expect("runner")
-            .decode_token_ids(tokens)
+        Self::runner_ref(&guard)?.decode_token_ids(tokens).map_err(Into::into)
     }
 
     pub fn preprocess_grid_thw(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<Vec<u32>>> {
         let guard = self.runner()?;
-        guard
-            .as_ref()
-            .expect("runner")
+        Self::runner_ref(&guard)?
             .preprocess_grid_thw(image, task)
+            .map_err(Into::into)
     }
 
     pub fn generate_dynamic(
@@ -217,13 +235,12 @@ impl VlmModel {
 
     pub fn preprocess_input_ids(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<u32>> {
         let guard = self.runner()?;
-        guard
-            .as_ref()
-            .expect("runner")
+        Self::runner_ref(&guard)?
             .build_input_ids_vec(image, task)
+            .map_err(Into::into)
     }
 }
 
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
-    docparser_candle_utils::list_safetensor_keys(model_dir)
+    Ok(docparser_candle_utils::list_safetensor_keys(model_dir)?)
 }

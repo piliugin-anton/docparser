@@ -2,12 +2,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use futures::future::{BoxFuture, try_join_all};
+use futures::future::try_join_all;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
+use tokio::task::JoinHandle;
 
 use crate::hf::hf_resolve_url;
 use crate::manifest;
@@ -39,7 +40,7 @@ pub async fn download_all(
     fixtures_only: bool,
     opts: &DownloadOptions,
 ) -> Result<()> {
-    let mut tasks: Vec<BoxFuture<'static, Result<()>>> = Vec::new();
+    let mut joins: Vec<JoinHandle<Result<()>>> = Vec::new();
     let full = !vlm_only && !layout_only && !fixtures_only && !doc_prep_only;
 
     if vlm_only || full {
@@ -49,7 +50,7 @@ pub async fn download_all(
         }
         let dest = models_dir.join(manifest::VLM_DIR_NAME);
         let opts = opts.clone();
-        tasks.push(Box::pin(async move {
+        joins.push(tokio::spawn(async move {
             download_repo(
                 manifest::VLM_REPO,
                 &dest,
@@ -64,7 +65,7 @@ pub async fn download_all(
     if layout_only || full {
         let dest = models_dir.join(manifest::LAYOUT_DIR_NAME);
         let opts_layout = opts.clone();
-        tasks.push(Box::pin(async move {
+        joins.push(tokio::spawn(async move {
             download_repo(
                 manifest::LAYOUT_REPO,
                 &dest,
@@ -79,7 +80,7 @@ pub async fn download_all(
     if doc_prep_only || full {
         let dest = models_dir.join(manifest::DOC_ORI_DIR_NAME);
         let opts_doc = opts.clone();
-        tasks.push(Box::pin(async move {
+        joins.push(tokio::spawn(async move {
             download_repo(
                 manifest::DOC_ORI_REPO,
                 &dest,
@@ -91,7 +92,7 @@ pub async fn download_all(
         }));
         let dest = models_dir.join(manifest::UVDOC_DIR_NAME);
         let opts_uv = opts.clone();
-        tasks.push(Box::pin(async move {
+        joins.push(tokio::spawn(async move {
             download_repo(
                 manifest::UVDOC_REPO,
                 &dest,
@@ -106,13 +107,35 @@ pub async fn download_all(
     if !vlm_only && !layout_only && !doc_prep_only {
         let fixtures_dir = fixtures_dir.to_path_buf();
         let opts = opts.clone();
-        tasks.push(Box::pin(async move {
-            download_fixtures(&fixtures_dir, &opts).await
-        }));
+        joins.push(tokio::spawn(
+            async move { download_fixtures(&fixtures_dir, &opts).await },
+        ));
     }
 
-    try_join_all(tasks).await?;
+    for join in joins {
+        join.await
+            .context("download task join error")?
+            .context("download task failed")?;
+    }
     Ok(())
+}
+
+fn spinner_style() -> Result<ProgressStyle> {
+    Ok(ProgressStyle::with_template("{spinner} {msg}")
+        .map_err(|e| anyhow::anyhow!("invalid spinner progress template: {e}"))?
+        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]))
+}
+
+fn bar_style() -> Result<ProgressStyle> {
+    Ok(ProgressStyle::with_template("{msg} [{bar:40}] {bytes}/{total_bytes} ({eta})")
+        .map_err(|e| anyhow::anyhow!("invalid bar progress template: {e}"))?
+        .progress_chars("=>-"))
+}
+
+async fn acquire_permit(sem: &Semaphore) -> Result<tokio::sync::SemaphorePermit<'_>> {
+    sem.acquire()
+        .await
+        .context("download semaphore closed")
 }
 
 async fn download_repo(
@@ -149,7 +172,7 @@ async fn download_repo(
             let mp = mp.clone();
             let expected = manifest::expected_size(sizes, &file);
             async move {
-                let _permit = sem.acquire().await.unwrap();
+                let _permit = acquire_permit(&sem).await?;
                 download_one(&client, &repo, &dest, &file, expected, &mp).await
             }
         })
@@ -186,17 +209,13 @@ async fn download_fixtures(fixtures_dir: &Path, opts: &DownloadOptions) -> Resul
             let name = fx.filename.to_string();
             let mp = mp.clone();
             async move {
-                let _permit = sem.acquire().await.unwrap();
+                let _permit = acquire_permit(&sem).await?;
                 if should_skip(&dest, None)? {
                     tracing::info!("skip (exists): {}", dest.display());
                     return Ok::<(), anyhow::Error>(());
                 }
                 let pb = mp.add(ProgressBar::new_spinner());
-                pb.set_style(
-                    ProgressStyle::with_template("{spinner} {msg}")
-                        .unwrap()
-                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-                );
+                pb.set_style(spinner_style()?);
                 pb.set_message(format!("fixture {name}"));
                 stream_to_file(&client, &url, &dest, None, Some(&pb)).await?;
                 pb.finish_with_message(format!("done {name}"));
@@ -230,20 +249,12 @@ async fn download_one(
     let url = hf_resolve_url(repo, file);
     let pb = if expected_size.unwrap_or(0) > 1_000_000 {
         let bar = mp.add(ProgressBar::new(expected_size.unwrap_or(0)));
-        bar.set_style(
-            ProgressStyle::with_template("{msg} [{bar:40}] {bytes}/{total_bytes} ({eta})")
-                .unwrap()
-                .progress_chars("=>-"),
-        );
+        bar.set_style(bar_style()?);
         bar.set_message(format!("{file}"));
         Some(bar)
     } else {
         let bar = mp.add(ProgressBar::new_spinner());
-        bar.set_style(
-            ProgressStyle::with_template("{spinner} {msg}")
-                .unwrap()
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
+        bar.set_style(spinner_style()?);
         bar.set_message(format!("{file}"));
         Some(bar)
     };
@@ -318,10 +329,10 @@ async fn stream_to_file(
 fn build_client(opts: &DownloadOptions) -> Result<Client> {
     let mut headers = reqwest::header::HeaderMap::new();
     if let Some(ref token) = opts.hf_token {
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {token}").parse().unwrap(),
-        );
+        let auth = format!("Bearer {token}")
+            .parse()
+            .context("invalid HF bearer token header value")?;
+        headers.insert(reqwest::header::AUTHORIZATION, auth);
     }
     Client::builder()
         .user_agent("docparser-download/0.1")

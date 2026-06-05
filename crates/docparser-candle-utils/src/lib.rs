@@ -1,8 +1,12 @@
 //! Shared helpers for mmap safetensors loading and parity tensor dumps.
 
+#![allow(unsafe_code)] // mmap safetensors in var_builder_from_safetensors
+
+mod error;
+
 use std::path::Path;
 
-use anyhow::{Context, Result};
+pub use error::{CandleUtilsError, Result};
 use candle_core::{Device, DType, Result as CandleResult, Tensor};
 use candle_nn::VarBuilder;
 
@@ -38,20 +42,23 @@ pub fn var_builder_from_safetensors(
     device: &Device,
 ) -> Result<VarBuilder<'static>> {
     let weights = model_dir.join("model.safetensors");
-    anyhow::ensure!(
-        weights.is_file(),
-        "missing weights at {}",
-        weights.display()
-    );
+    if !weights.is_file() {
+        return Err(CandleUtilsError::Message(format!(
+            "missing weights at {}",
+            weights.display()
+        )));
+    }
     let weights_path = weights.clone();
     // SAFETY: mmap is read-only; weights are not mutated.
-    unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device) }
-        .with_context(|| format!("mmap safetensors {}", weights.display()))
+    Ok(unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device) }
+        .map_err(CandleUtilsError::Candle)?)
 }
 
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
     let path = model_dir.join("model.safetensors");
-    let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+    let bytes = std::fs::read(&path).map_err(|e| {
+        CandleUtilsError::Message(format!("read {}: {e}", path.display()))
+    })?;
     let data = SafeTensors::deserialize(&bytes)?;
     let mut keys: Vec<String> = data.names().into_iter().map(str::to_string).collect();
     keys.sort();

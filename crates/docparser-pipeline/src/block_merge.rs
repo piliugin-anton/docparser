@@ -334,6 +334,7 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use pp_doclayout_v3::LayoutElement;
 
     fn block(id: usize, label: &str, h: u32) -> CropBlock {
@@ -361,5 +362,20 @@ mod tests {
         let nm = non_merge_labels(false, false, false);
         let out = merge_blocks(blocks, &nm);
         assert!(out.iter().all(|b| b.group_id.is_none()));
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn overlap_ratio_bounded(a1 in 0.0f32..100.0, a2 in 0.0f32..100.0, b1 in 0.0f32..100.0, b2 in 0.0f32..100.0) {
+            let x1 = a1.min(a2);
+            let x2 = a1.max(a2);
+            let y1 = b1.min(b2);
+            let y2 = b1.max(b2);
+            let bbox1 = [x1, y1, x2, y2];
+            let bbox2 = [x1 + 1.0, y1 + 1.0, x2 + 1.0, y2 + 1.0];
+            let ratio = calculate_overlap_ratio(bbox1, bbox2);
+            prop_assert!(ratio >= 0.0 && ratio <= 1.0);
+            prop_assert_eq!(ratio, calculate_overlap_ratio(bbox2, bbox1));
+        }
     }
 }

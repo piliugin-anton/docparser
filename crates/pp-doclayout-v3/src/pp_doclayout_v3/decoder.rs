@@ -32,6 +32,7 @@ impl Decoder {
         })
     }
 
+    // DETR-style decoder step mirrors upstream API (embeds, refs, heads, mask feat).
     #[allow(clippy::too_many_arguments)]
     pub fn forward(
         &self,

@@ -56,7 +56,7 @@ impl PosEmbedCache {
 
         // Evict LFU entry if at capacity
         if self.cache.len() >= self.max_size {
-            if let Some((&lfu_key, _)) = self.frequency.iter().min_by_key(|(_, &freq)| freq) {
+            if let Some((&lfu_key, _)) = self.frequency.iter().min_by_key(|&(_, freq)| freq) {
                 self.cache.remove(&lfu_key);
                 self.frequency.remove(&lfu_key);
             }
@@ -67,8 +67,8 @@ impl PosEmbedCache {
         self.frequency.insert(key, 1);
     }
 
-    /// Clear all cached embeddings.
-    #[allow(dead_code)]
+    /// Clear all cached embeddings (parity/debug; not used in inference hot path).
+    #[allow(dead_code)] // reserved for cache invalidation when input resolution changes
     fn clear(&mut self) {
         self.cache.clear();
         self.frequency.clear();
@@ -88,8 +88,9 @@ impl PosEmbedCache {
 struct PatchEmbedding {
     patch_embedding: candle_nn::Conv2d,
     position_embedding: Tensor, // (num_positions, hidden_size) where num_positions = (image_size/patch_size)^2
+    // Loaded from checkpoint for weight compatibility; inference uses interpolated `position_embedding`.
     #[allow(dead_code)]
-    packing_position_embedding: candle_nn::Embedding, // Fallback, kept for weight loading
+    packing_position_embedding: candle_nn::Embedding,
     base_grid_size: usize,      // sqrt(num_positions), typically 27 for 384/14
     hidden_size: usize,
     /// Cache for interpolated position embeddings (LFU eviction)

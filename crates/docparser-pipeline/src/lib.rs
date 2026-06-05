@@ -1,5 +1,8 @@
+#![deny(unsafe_code)]
+
 mod block_merge;
 mod doc_preprocess;
+mod error;
 mod layout_filter;
 mod layout_merge;
 mod layout_nms;
@@ -8,7 +11,7 @@ mod markdown;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::Context;
 use candle_core::Device;
 use image::{DynamicImage, GenericImageView, RgbImage};
 use paddleocr_vl::{should_run_vlm_for_label, task_for_layout_label, VlmModel};
@@ -16,6 +19,7 @@ use pp_doclayout_v3::LayoutModel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub use error::{PipelineError, Result};
 pub use block_merge::{
     merge_blocks, non_merge_labels, CropBlock, IMAGE_LABELS,
 };
@@ -255,17 +259,18 @@ impl DocumentPipeline {
         let mut blocks = Vec::new();
         for cb in &crop_blocks {
             let el = &cb.element;
-            let content = if cb.crop.is_some()
-                && should_run_vlm_for_label(
+            let content = if let Some(crop) = cb.crop.as_ref() {
+                if should_run_vlm_for_label(
                     &el.label,
                     self.config.use_chart_recognition,
                     self.config.use_seal_recognition,
                     self.config.use_ocr_for_image_block,
-                )
-            {
-                let crop = cb.crop.as_ref().unwrap();
-                let task = task_for_layout_label(&el.label);
-                self.vlm.generate(crop, task, self.config.max_tokens)?
+                ) {
+                    let task = task_for_layout_label(&el.label);
+                    self.vlm.generate(crop, task, self.config.max_tokens)?
+                } else {
+                    String::new()
+                }
             } else {
                 String::new()
             };

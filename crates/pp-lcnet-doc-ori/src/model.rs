@@ -1,7 +1,8 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::{bail, Result};
+use crate::{DocOriError, Result};
+use anyhow::{Result as AnyhowResult};
 use candle_core::{Device, DType};
 use image::{DynamicImage, RgbImage};
 
@@ -18,11 +19,12 @@ pub struct DocOrientationRunner {
 }
 
 impl DocOrientationRunner {
-    pub fn load(model_dir: &Path) -> Result<Self> {
+    pub fn load(model_dir: &Path) -> AnyhowResult<Self> {
         let device = Device::Cpu;
         let config = PpLcnetConfig::from_dir(model_dir)?;
         let preprocessor = PreprocessorConfig::from_dir(model_dir)?;
-        let vb = docparser_candle_utils::var_builder_from_safetensors(model_dir, DType::F32, &device)?;
+        let vb = docparser_candle_utils::var_builder_from_safetensors(model_dir, DType::F32, &device)
+            .map_err(anyhow::Error::from)?;
         let model = PpLcnetModel::load(&config, vb)?;
         Ok(Self {
             model,
@@ -32,7 +34,7 @@ impl DocOrientationRunner {
         })
     }
 
-    pub fn classify(&self, image: &RgbImage) -> Result<(u32, f32)> {
+    pub fn classify(&self, image: &RgbImage) -> AnyhowResult<(u32, f32)> {
         let pixel_values = preprocess(image, &self.preprocessor, &self.device)?;
         let probs = self.model.forward(&pixel_values)?;
         let probs = probs.squeeze(0)?.to_vec1::<f32>()?;
@@ -46,7 +48,7 @@ impl DocOrientationRunner {
         Ok((angle, score))
     }
 
-    pub fn logits(&self, image: &RgbImage) -> Result<Vec<f32>> {
+    pub fn logits(&self, image: &RgbImage) -> AnyhowResult<Vec<f32>> {
         let pixel_values = preprocess(image, &self.preprocessor, &self.device)?;
         self.model
             .forward_logits(&pixel_values)?
@@ -55,7 +57,7 @@ impl DocOrientationRunner {
             .map_err(Into::into)
     }
 
-    pub fn predict_and_rotate(&self, image: DynamicImage) -> Result<(DynamicImage, u32)> {
+    pub fn predict_and_rotate(&self, image: DynamicImage) -> AnyhowResult<(DynamicImage, u32)> {
         let rgb = image.to_rgb8();
         let (angle, _score) = self.classify(&rgb)?;
         Ok((rotate_by_angle(image, angle), angle))
@@ -72,7 +74,10 @@ impl DocOrientationModel {
         let model_dir = model_dir.as_ref().to_path_buf();
         let weights = model_dir.join("model.safetensors");
         if !weights.is_file() {
-            bail!("missing weights at {}", weights.display());
+            return Err(DocOriError::Message(format!(
+                "missing weights at {}",
+                weights.display()
+            )));
         }
         Ok(Self {
             model_dir,
@@ -84,23 +89,33 @@ impl DocOrientationModel {
         let mut guard = self
             .runner
             .lock()
-            .map_err(|_| anyhow::anyhow!("doc orientation runner lock poisoned"))?;
+            .map_err(|_| DocOriError::LockPoisoned)?;
         if guard.is_none() {
             *guard = Some(DocOrientationRunner::load(&self.model_dir)?);
         }
         Ok(guard)
     }
 
+    fn runner_ref<'a>(
+        guard: &'a std::sync::MutexGuard<'_, Option<DocOrientationRunner>>,
+    ) -> Result<&'a DocOrientationRunner> {
+        guard
+            .as_ref()
+            .ok_or(DocOriError::RunnerNotLoaded)
+    }
+
     pub fn classify(&self, image: &RgbImage) -> Result<(u32, f32)> {
-        self.runner()?.as_ref().unwrap().classify(image)
+        Self::runner_ref(&self.runner()?)?.classify(image).map_err(Into::into)
     }
 
     pub fn logits(&self, image: &RgbImage) -> Result<Vec<f32>> {
-        self.runner()?.as_ref().unwrap().logits(image)
+        Self::runner_ref(&self.runner()?)?.logits(image).map_err(Into::into)
     }
 
     pub fn predict_and_rotate(&self, image: DynamicImage) -> Result<(DynamicImage, u32)> {
-        self.runner()?.as_ref().unwrap().predict_and_rotate(image)
+        Self::runner_ref(&self.runner()?)?
+            .predict_and_rotate(image)
+            .map_err(Into::into)
     }
 }
 

@@ -1,7 +1,8 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::{bail, Result};
+use crate::{Result, UvdocError};
+use anyhow::{bail, Result as AnyhowResult};
 use candle_core::{Device, DType, Tensor};
 use image::RgbImage;
 
@@ -16,11 +17,12 @@ pub struct UvdocRunner {
 }
 
 impl UvdocRunner {
-    pub fn load(model_dir: &Path) -> Result<Self> {
+    pub fn load(model_dir: &Path) -> AnyhowResult<Self> {
         let device = Device::Cpu;
         let config = UvdocConfig::from_dir(model_dir)?;
         let preprocessor = PreprocessorConfig::from_dir(model_dir)?;
-        let vb = docparser_candle_utils::var_builder_from_safetensors(model_dir, DType::F32, &device)?;
+        let vb = docparser_candle_utils::var_builder_from_safetensors(model_dir, DType::F32, &device)
+            .map_err(anyhow::Error::from)?;
         let model = UvdocNet::load(&config, vb)?;
         Ok(Self {
             model,
@@ -29,7 +31,7 @@ impl UvdocRunner {
         })
     }
 
-    pub fn rectify(&self, image: &RgbImage) -> Result<RgbImage> {
+    pub fn rectify(&self, image: &RgbImage) -> AnyhowResult<RgbImage> {
         let prep = preprocess_with_original(image, &self.preprocessor, &self.device)?;
         let flow = self.model.forward_flow(&prep.network_input)?;
         let output = self
@@ -38,13 +40,13 @@ impl UvdocRunner {
         tensor_bgr_to_rgb(&output)
     }
 
-    pub fn forward_flow(&self, image: &RgbImage) -> Result<Tensor> {
+    pub fn forward_flow(&self, image: &RgbImage) -> AnyhowResult<Tensor> {
         let prep = preprocess_with_original(image, &self.preprocessor, &self.device)?;
         Ok(self.model.forward_flow(&prep.network_input)?)
     }
 }
 
-fn tensor_bgr_to_rgb(out: &Tensor) -> Result<RgbImage> {
+fn tensor_bgr_to_rgb(out: &Tensor) -> AnyhowResult<RgbImage> {
     let out = out.squeeze(0)?.to_dtype(DType::F32)?;
     let (c, h, w) = out.dims3()?;
     if c != 3 {
@@ -73,7 +75,10 @@ impl UvdocModel {
         let model_dir = model_dir.as_ref().to_path_buf();
         let weights = model_dir.join("model.safetensors");
         if !weights.is_file() {
-            bail!("missing weights at {}", weights.display());
+            return Err(UvdocError::Message(format!(
+                "missing weights at {}",
+                weights.display()
+            )));
         }
         Ok(Self {
             model_dir,
@@ -85,18 +90,26 @@ impl UvdocModel {
         let mut guard = self
             .runner
             .lock()
-            .map_err(|_| anyhow::anyhow!("uvdoc runner lock poisoned"))?;
+            .map_err(|_| UvdocError::LockPoisoned)?;
         if guard.is_none() {
             *guard = Some(UvdocRunner::load(&self.model_dir)?);
         }
         Ok(guard)
     }
 
+    fn runner_ref<'a>(
+        guard: &'a std::sync::MutexGuard<'_, Option<UvdocRunner>>,
+    ) -> Result<&'a UvdocRunner> {
+        guard
+            .as_ref()
+            .ok_or(UvdocError::RunnerNotLoaded)
+    }
+
     pub fn rectify(&self, image: &RgbImage) -> Result<RgbImage> {
-        self.runner()?.as_ref().unwrap().rectify(image)
+        Self::runner_ref(&self.runner()?)?.rectify(image).map_err(Into::into)
     }
 
     pub fn forward_flow(&self, image: &RgbImage) -> Result<candle_core::Tensor> {
-        self.runner()?.as_ref().unwrap().forward_flow(image)
+        Self::runner_ref(&self.runner()?)?.forward_flow(image).map_err(Into::into)
     }
 }

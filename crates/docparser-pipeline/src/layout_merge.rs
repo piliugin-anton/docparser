@@ -193,3 +193,36 @@ pub fn merge_layout_blocks_with_mode_fn(
         .filter_map(|(i, el)| keep_mask[i].then_some(el))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn el(id: usize, label: &str, bbox: [f32; 4]) -> LayoutElement {
+        LayoutElement {
+            id,
+            order: Some(id),
+            label: label.into(),
+            score: 0.9,
+            bbox,
+            text: None,
+        }
+    }
+
+    #[test]
+    fn large_mode_drops_contained_smaller_box() {
+        let elements = vec![
+            el(0, "text", [0.0, 0.0, 100.0, 100.0]),
+            el(1, "text", [10.0, 10.0, 20.0, 20.0]),
+        ];
+        let out = merge_layout_blocks_with_mode_fn(elements, |label| {
+            if label == "text" {
+                MergeBboxesMode::Large
+            } else {
+                MergeBboxesMode::Union
+            }
+        });
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, 0);
+    }
+}

@@ -25,13 +25,54 @@ pub fn layout_nms(mut elements: Vec<LayoutElement>, iou_threshold: f32) -> Vec<L
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     let mut kept = Vec::new();
-    while let Some(cur) = elements.first().cloned() {
-        kept.push(cur.clone());
-        elements.remove(0);
+    while !elements.is_empty() {
+        let cur = elements.remove(0);
         elements.retain(|e| iou(cur.bbox, e.bbox) < iou_threshold);
+        kept.push(cur);
     }
     for (i, el) in kept.iter_mut().enumerate() {
         el.id = i;
     }
     kept
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(id: usize, score: f32, bbox: [f32; 4]) -> LayoutElement {
+        LayoutElement {
+            id,
+            order: Some(id),
+            label: "text".into(),
+            score,
+            bbox,
+            text: None,
+        }
+    }
+
+    #[test]
+    fn suppresses_high_iou_lower_score_box() {
+        let input = vec![
+            element(0, 0.9, [0.0, 0.0, 10.0, 10.0]),
+            element(1, 0.5, [1.0, 1.0, 11.0, 11.0]),
+            element(2, 0.8, [50.0, 50.0, 60.0, 60.0]),
+        ];
+        let out = layout_nms(input, 0.5);
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().any(|e| (e.score - 0.9).abs() < f32::EPSILON));
+        assert!(out.iter().any(|e| (e.score - 0.8).abs() < f32::EPSILON));
+        assert_eq!(out[0].id, 0);
+        assert_eq!(out[1].id, 1);
+    }
+
+    #[test]
+    fn keeps_disjoint_boxes() {
+        let input = vec![
+            element(0, 0.7, [0.0, 0.0, 10.0, 10.0]),
+            element(1, 0.6, [20.0, 20.0, 30.0, 30.0]),
+        ];
+        let out = layout_nms(input, 0.5);
+        assert_eq!(out.len(), 2);
+    }
 }
