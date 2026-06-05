@@ -77,8 +77,7 @@ Implemented in `merge_mode_for_label()` / `apply_layout_merge_bboxes()` in `crat
 cargo test -p docparser-pipeline
 
 # Doc prep inference smoke (needs models; RUN_SLOW)
-cargo test -p pp-lcnet-doc-ori --test load_inference -- --ignored
-cargo test -p uvdoc --test load_inference -- --ignored
+cargo test -p docparser-doc-prep --test load_inference -- --ignored
 
 # HF layout/VLM tensor parity (needs models; often RUN_SLOW)
 cargo test -p pp-doclayout-v3 --test postprocess_parity -- --ignored

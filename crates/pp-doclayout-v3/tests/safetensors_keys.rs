@@ -4,7 +4,7 @@ use pp_doclayout_v3::{LayoutConfig, list_safetensor_keys};
 
 #[test]
 fn config_parses_from_fixture() {
-    let cfg = LayoutConfig::from_dir(Path::new("tests/fixtures")).expect("parse layout config");
+    let cfg = LayoutConfig::from_dir(Path::new("tests/fixtures"), 0.5).expect("parse layout config");
     assert_eq!(cfg.num_queries, 300);
     assert_eq!(cfg.num_labels, 25);
 }

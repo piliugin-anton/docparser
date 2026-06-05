@@ -1,13 +1,13 @@
 use std::path::Path;
-use std::sync::Mutex;
 
 use candle_core::{DType, Device, Tensor};
+use docparser_candle_utils::LazyRunner;
 use image::RgbImage;
 
-use crate::config::UvdocConfig;
-use crate::nn::UvdocNet;
-use crate::preprocess::{PreprocessorConfig, preprocess_with_original};
-use crate::{Result, UvdocError};
+use super::config::UvdocConfig;
+use super::nn::UvdocNet;
+use super::preprocess::{PreprocessorConfig, preprocess_with_original};
+use super::{Result, UvdocError};
 
 pub struct UvdocRunner {
     model: UvdocNet,
@@ -65,45 +65,23 @@ fn tensor_bgr_to_rgb(out: &Tensor) -> Result<RgbImage> {
 }
 
 pub struct UvdocModel {
-    model_dir: std::path::PathBuf,
-    runner: Mutex<Option<UvdocRunner>>,
+    runner: LazyRunner<UvdocRunner>,
 }
 
 impl UvdocModel {
     pub fn from_dir(model_dir: impl AsRef<Path>) -> Result<Self> {
-        let model_dir = model_dir.as_ref().to_path_buf();
-        let weights = model_dir.join("model.safetensors");
-        if !weights.is_file() {
-            return Err(UvdocError::Message(format!(
-                "missing weights at {}",
-                weights.display()
-            )));
-        }
         Ok(Self {
-            model_dir,
-            runner: Mutex::new(None),
+            runner: LazyRunner::new(model_dir.as_ref().to_path_buf()),
         })
     }
 
-    fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<UvdocRunner>>> {
-        let mut guard = self.runner.lock().map_err(|_| UvdocError::LockPoisoned)?;
-        if guard.is_none() {
-            *guard = Some(UvdocRunner::load(&self.model_dir)?);
-        }
-        Ok(guard)
-    }
-
-    fn runner_ref<'a>(
-        guard: &'a std::sync::MutexGuard<'_, Option<UvdocRunner>>,
-    ) -> Result<&'a UvdocRunner> {
-        guard.as_ref().ok_or(UvdocError::RunnerNotLoaded)
-    }
-
     pub fn rectify(&self, image: &RgbImage) -> Result<RgbImage> {
-        Self::runner_ref(&self.runner()?)?.rectify(image)
+        self.runner
+            .with_runner(UvdocRunner::load, |r| r.rectify(image))
     }
 
     pub fn forward_flow(&self, image: &RgbImage) -> Result<candle_core::Tensor> {
-        Self::runner_ref(&self.runner()?)?.forward_flow(image)
+        self.runner
+            .with_runner(UvdocRunner::load, |r| r.forward_flow(image))
     }
 }

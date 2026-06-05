@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 mod error;
 
 pub use error::{LayoutError, Result};
+use docparser_candle_utils::LazyRunner;
 use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,7 @@ mod preprocess;
 
 pub use image_processor::{LayoutImageProcessor, LayoutPreprocessorConfig};
 pub use preprocess::PreprocessOutput;
+pub use pp_doclayout_v3::PpDocLayoutV3Config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutElement {
@@ -28,53 +30,43 @@ pub struct LayoutElement {
     pub text: Option<String>,
 }
 
+/// Layout model metadata loaded from `config.json` (via [`PpDocLayoutV3Config`]).
 #[derive(Debug, Clone)]
 pub struct LayoutConfig {
-    pub num_labels: u32,
-    pub num_queries: u32,
-    pub id2label: HashMap<u32, String>,
+    inner: PpDocLayoutV3Config,
     pub detection_threshold: f32,
 }
 
 impl LayoutConfig {
-    pub fn from_dir(model_dir: &Path) -> Result<Self> {
-        let path = model_dir.join("config.json");
-        let data = std::fs::read_to_string(&path)?;
-        #[derive(Deserialize)]
-        struct Root {
-            num_queries: u32,
-            id2label: serde_json::Map<String, serde_json::Value>,
-        }
-        let root: Root = serde_json::from_str(&data)?;
-        let id2label: HashMap<u32, String> = root
-            .id2label
-            .iter()
-            .filter_map(|(k, v)| {
-                let id: u32 = k.parse().ok()?;
-                let name = v.as_str()?.to_string();
-                Some((id, name))
-            })
-            .collect();
+    pub fn from_dir(model_dir: &Path, detection_threshold: f32) -> Result<Self> {
+        let inner = PpDocLayoutV3Config::from_dir(model_dir)?;
         Ok(Self {
-            num_labels: id2label.len() as u32,
-            num_queries: root.num_queries,
-            id2label,
-            detection_threshold: 0.5,
+            inner,
+            detection_threshold,
         })
     }
 
+    pub fn num_labels(&self) -> u32 {
+        self.inner.num_labels() as u32
+    }
+
+    pub fn num_queries(&self) -> u32 {
+        self.inner.num_queries as u32
+    }
+
+    pub fn id2label(&self) -> HashMap<u32, String> {
+        self.inner.id2label_map()
+    }
+
     pub fn label_for_id(&self, id: i64) -> String {
-        self.id2label
-            .get(&(id as u32))
-            .cloned()
-            .unwrap_or_else(|| "unknown".to_string())
+        self.inner.label_for_id(id)
     }
 }
 
 pub struct LayoutModel {
     model_dir: PathBuf,
     config: LayoutConfig,
-    runner: std::sync::Mutex<Option<model::LayoutRunner>>,
+    runner: LazyRunner<model::LayoutRunner>,
 }
 
 impl LayoutModel {
@@ -87,37 +79,12 @@ impl LayoutModel {
         detection_threshold: f32,
     ) -> Result<Self> {
         let model_dir = model_dir.as_ref().to_path_buf();
-        let weights = model_dir.join("model.safetensors");
-        if !weights.is_file() {
-            return Err(LayoutError::Message(format!(
-                "missing layout weights at {}",
-                weights.display()
-            )));
-        }
-        let mut config = LayoutConfig::from_dir(&model_dir)?;
-        config.detection_threshold = detection_threshold;
+        let config = LayoutConfig::from_dir(&model_dir, detection_threshold)?;
         Ok(Self {
-            model_dir,
+            model_dir: model_dir.clone(),
             config,
-            runner: std::sync::Mutex::new(None),
+            runner: LazyRunner::new(model_dir),
         })
-    }
-
-    fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<model::LayoutRunner>>> {
-        let mut guard = self.runner.lock().map_err(|_| LayoutError::LockPoisoned)?;
-        if guard.is_none() {
-            *guard = Some(model::LayoutRunner::load(
-                &self.model_dir,
-                self.config.detection_threshold,
-            )?);
-        }
-        Ok(guard)
-    }
-
-    fn runner_ref<'a>(
-        guard: &'a std::sync::MutexGuard<'_, Option<model::LayoutRunner>>,
-    ) -> Result<&'a model::LayoutRunner> {
-        guard.as_ref().ok_or(LayoutError::RunnerNotLoaded)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -141,8 +108,10 @@ impl LayoutModel {
         if (t - self.config.detection_threshold).abs() > f32::EPSILON {
             return model::LayoutRunner::load(&self.model_dir, t)?.detect(image);
         }
-        let guard = self.runner()?;
-        Self::runner_ref(&guard)?.detect(image)
+        self.runner.with_runner(
+            |dir| model::LayoutRunner::load(dir, self.config.detection_threshold),
+            |r| r.detect(image),
+        )
     }
 
     pub fn detect_path(&self, path: impl AsRef<Path>) -> Result<Vec<LayoutElement>> {
@@ -159,7 +128,7 @@ pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
 
 /// Resolve label name from id using a model directory's `config.json`.
 pub fn label_name_from_dir(model_dir: &Path, id: i64) -> Result<String> {
-    Ok(LayoutConfig::from_dir(model_dir)?.label_for_id(id))
+    Ok(PpDocLayoutV3Config::from_dir(model_dir)?.label_for_id(id))
 }
 
 #[deprecated(note = "use LayoutConfig::label_for_id or label_name_from_dir")]

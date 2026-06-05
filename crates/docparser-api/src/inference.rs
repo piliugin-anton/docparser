@@ -1,6 +1,6 @@
 //! Bounded queue + dedicated worker thread for CPU-bound document parsing.
 
-use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::thread::{self, JoinHandle};
 
 use docparser_pipeline::{DocumentParseResult, DocumentPipeline, PipelineError};
@@ -47,16 +47,19 @@ impl InferencePool {
         filename: Option<String>,
     ) -> Result<DocumentParseResult, PipelineError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx
-            .send(InferenceJob {
-                bytes,
-                format,
-                filename,
-                reply: reply_tx,
-            })
-            .map_err(|_| PipelineError::Message("inference queue closed".into()))?;
-        reply_rx.await.map_err(|_| {
-            PipelineError::Message("inference worker dropped response channel".into())
-        })?
+        let job = InferenceJob {
+            bytes,
+            format,
+            filename,
+            reply: reply_tx,
+        };
+        match self.tx.try_send(job) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return Err(PipelineError::InferenceQueueFull),
+            Err(TrySendError::Disconnected(_)) => {
+                return Err(PipelineError::InferenceWorkerUnavailable);
+            }
+        }
+        reply_rx.await.map_err(|_| PipelineError::InferenceWorkerUnavailable)?
     }
 }

@@ -56,12 +56,19 @@ pub fn build_router(state: AppState, max_upload_bytes: usize) -> Router {
 }
 
 pub async fn run(config: ApiConfig) -> Result<()> {
-    verify_models_dir(&config.models_dir)
-        .context("model artifacts missing; run: cargo run -p docparser-download")?;
-
+    let models_dir = config.models_dir.clone();
     let mut pipeline_cfg = config.pipeline.clone();
     pipeline_cfg.max_tokens = config.max_tokens;
-    let pipeline = DocumentPipeline::from_models_dir(&config.models_dir, pipeline_cfg)?;
+
+    let pipeline = tokio::task::spawn_blocking(move || {
+        verify_models_dir(&models_dir)
+            .context("model artifacts missing; run: cargo run -p docparser-download")?;
+        DocumentPipeline::from_models_dir(&models_dir, pipeline_cfg)
+            .context("failed to load inference models")
+    })
+    .await
+    .context("model load task panicked")??;
+
     info!("models loaded from {}", config.models_dir.display());
 
     let state = AppState::new(pipeline, config.inference_queue_depth);
@@ -110,9 +117,26 @@ async fn parse_document(
         .inference
         .parse_image(bytes, format, filename)
         .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+        .map_err(pipeline_error_to_app_error)?;
 
     Ok((StatusCode::OK, Json(result)))
+}
+
+fn pipeline_error_to_app_error(err: docparser_pipeline::PipelineError) -> AppError {
+    use docparser_pipeline::PipelineError;
+
+    match err {
+        PipelineError::Image(_) => {
+            AppError::bad_request("invalid or corrupt image data")
+        }
+        PipelineError::InferenceQueueFull => AppError::service_unavailable(
+            "inference queue is full; retry later",
+        ),
+        PipelineError::InferenceWorkerUnavailable => {
+            AppError::service_unavailable("inference worker is unavailable")
+        }
+        other => AppError::internal(other.to_string()),
+    }
 }
 
 fn detect_image_format(bytes: &[u8], filename: Option<&str>) -> Option<ImageFormat> {
@@ -153,6 +177,12 @@ impl AppError {
     fn internal(msg: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: msg.into(),
+        }
+    }
+    fn service_unavailable(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
             message: msg.into(),
         }
     }

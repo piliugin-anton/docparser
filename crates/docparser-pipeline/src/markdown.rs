@@ -1,11 +1,13 @@
 //! Markdown assembly from parsed blocks.
 
+use std::collections::HashSet;
+
 use crate::Block;
 
-pub fn blocks_to_markdown(blocks: &[Block], ignore_labels: &[String]) -> String {
+pub fn blocks_to_markdown(blocks: &[Block], ignore_labels: &HashSet<String>) -> String {
     let mut out = String::new();
     for block in blocks {
-        if ignore_labels.iter().any(|l| l == &block.label) {
+        if ignore_labels.contains(&block.label) {
             continue;
         }
         if !block.content.is_empty() {
@@ -58,7 +60,7 @@ mod tests {
             block("number", "99"),
             block("text", "world"),
         ];
-        let ignore = vec!["number".into()];
+        let ignore: HashSet<String> = ["number".into()].into_iter().collect();
         let md = blocks_to_markdown(&blocks, &ignore);
         assert!(md.contains("hello"));
         assert!(md.contains("world"));
@@ -68,7 +70,7 @@ mod tests {
     #[test]
     fn adds_trailing_newline_between_blocks() {
         let blocks = vec![block("text", "line")];
-        let md = blocks_to_markdown(&blocks, &[]);
+        let md = blocks_to_markdown(&blocks, &HashSet::new());
         insta::assert_snapshot!(md, @"line\n\n");
     }
 }

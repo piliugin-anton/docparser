@@ -2,8 +2,8 @@ use candle_core::{DType, Device, Tensor};
 use image::RgbImage;
 use serde::Deserialize;
 
-use crate::grid_sample::upsample_bilinear_align_corners;
-use crate::{Result, UvdocError};
+use super::grid_sample::upsample_bilinear_align_corners;
+use super::{Result, UvdocError};
 
 #[derive(Debug, Clone)]
 pub struct PreprocessorConfig {
@@ -21,8 +21,8 @@ pub struct PreprocessOutput {
 
 impl PreprocessorConfig {
     pub fn from_dir(model_dir: &std::path::Path) -> Result<Self> {
-        let path = model_dir.join("preprocessor_config.json");
-        let data = std::fs::read_to_string(&path)?;
+        let data =
+            docparser_candle_utils::read_json_from_dir(model_dir, "preprocessor_config.json")?;
         #[derive(Deserialize)]
         struct Root {
             size: Size,

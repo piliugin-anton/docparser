@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::{DocOriError, Result};
+use super::{DocOriError, Result};
 
 #[derive(Debug, Clone)]
 pub struct PpLcnetConfig {

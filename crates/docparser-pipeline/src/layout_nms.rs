@@ -26,7 +26,7 @@ pub fn layout_nms(mut elements: Vec<LayoutElement>, iou_threshold: f32) -> Vec<L
     });
     let mut kept = Vec::new();
     while !elements.is_empty() {
-        let cur = elements.remove(0);
+        let cur = elements.swap_remove(0);
         elements.retain(|e| iou(cur.bbox, e.bbox) < iou_threshold);
         kept.push(cur);
     }

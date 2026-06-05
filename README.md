@@ -99,7 +99,7 @@ source scripts/mkl-env.sh
 source scripts/mkl-env.sh && cargo run -p docparser-api --release --features mkl
 ```
 
-The feature is forwarded through `docparser-pipeline` → `paddleocr-vl`, `pp-doclayout-v3`, `pp-lcnet-doc-ori`, `uvdoc`, and `docparser-candle-utils`. Without `--features mkl`, inference uses Candle’s default CPU backend (no MKL required).
+The feature is forwarded through `docparser-pipeline` → `paddleocr-vl`, `pp-doclayout-v3`, `docparser-doc-prep`, and `docparser-candle-utils`. Without `--features mkl`, inference uses Candle’s default CPU backend (no MKL required).
 
 ```bash
 cargo run -p docparser-api
@@ -136,8 +136,7 @@ Each parse adds ~40 MB mmap for doc-prep weights and modest per-page latency on 
 | `docparser-candle-utils` | Shared safetensors mmap / parity helpers |
 | `paddleocr-vl` | In-tree PaddleOCR-VL Candle inference |
 | `pp-doclayout-v3` | PP-DocLayoutV3 layout (Candle + safetensors) |
-| `pp-lcnet-doc-ori` | PP-LCNet document orientation (Candle + safetensors) |
-| `uvdoc` | UVDoc document unwarping (Candle + safetensors) |
+| `docparser-doc-prep` | Document orientation + UVDoc unwarping (`orientation` / `unwarp` modules) |
 | `docparser-pipeline` | Full orchestration (doc prep + layout + VLM) |
 | `docparser-api` | Axum HTTP server |
 | `docparser-test-utils` | Parity test helpers |

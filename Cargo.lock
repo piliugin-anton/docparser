@@ -830,6 +830,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "docparser-doc-prep"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "docparser-candle-utils",
+ "docparser-test-utils",
+ "image",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "docparser-download"
 version = "0.1.0"
 dependencies = [
@@ -851,19 +865,18 @@ name = "docparser-pipeline"
 version = "0.1.0"
 dependencies = [
  "candle-core",
+ "docparser-doc-prep",
  "docparser-test-utils",
  "image",
  "insta",
  "paddleocr-vl",
  "pp-doclayout-v3",
- "pp-lcnet-doc-ori",
  "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
  "uuid",
- "uvdoc",
 ]
 
 [[package]]
@@ -2460,20 +2473,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pp-lcnet-doc-ori"
-version = "0.1.0"
-dependencies = [
- "candle-core",
- "candle-nn",
- "docparser-candle-utils",
- "docparser-test-utils",
- "image",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3921,20 +3920,6 @@ dependencies = [
  "js-sys",
  "serde_core",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "uvdoc"
-version = "0.1.0"
-dependencies = [
- "candle-core",
- "candle-nn",
- "docparser-candle-utils",
- "docparser-test-utils",
- "image",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
 ]
 
 [[package]]

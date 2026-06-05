@@ -141,7 +141,7 @@ fn overlap_with_other_box(
     block_idx: usize,
     prev_idx: usize,
     blocks: &[CropBlock],
-    non_merge: &[String],
+    non_merge_set: &std::collections::HashSet<&str>,
 ) -> bool {
     let prev_bbox = blocks[prev_idx].element.bbox;
     let block_bbox = blocks[block_idx].element.bbox;
@@ -151,8 +151,6 @@ fn overlap_with_other_box(
         prev_bbox[2].max(block_bbox[2]),
         prev_bbox[3].max(block_bbox[3]),
     ];
-    let non_merge_set: std::collections::HashSet<&str> =
-        non_merge.iter().map(|s| s.as_str()).collect();
     for (idx, other) in blocks.iter().enumerate() {
         if idx == block_idx || idx == prev_idx {
             continue;
@@ -222,7 +220,7 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
             && (block_bbox[1] - prev_bbox[3]).abs()
                 < (prev_bbox[3] - prev_bbox[1]).max(block_bbox[3] - block_bbox[1]) * 0.5
             && (is_aligned(block_bbox[0], prev_bbox[0]) ^ is_aligned(block_bbox[2], prev_bbox[2]))
-            && overlap_with_other_box(idx, prev_idx, &blocks, non_merge_labels);
+            && overlap_with_other_box(idx, prev_idx, &blocks, &non_merge_set);
 
         let align_mode = if is_cross {
             Some("center")
@@ -247,13 +245,16 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
         merged_groups.push((current_group, current_aligns));
     }
 
-    let mut group_ranges: Vec<(usize, usize, Vec<usize>, Vec<&'static str>)> = Vec::new();
+    let mut group_by_start: std::collections::HashMap<
+        usize,
+        (usize, usize, Vec<usize>, Vec<&'static str>),
+    > = std::collections::HashMap::new();
     for (group_indices, aligns) in merged_groups {
         let (Some(&start), Some(&end)) = (group_indices.iter().min(), group_indices.iter().max())
         else {
             continue;
         };
-        group_ranges.push((start, end, group_indices, aligns));
+        group_by_start.insert(start, (start, end, group_indices, aligns));
     }
 
     let mut result_blocks: Vec<CropBlock> = Vec::new();
@@ -262,9 +263,9 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
 
     while idx < blocks.len() {
         let mut group_found = false;
-        for (start, end, group_indices, aligns) in &group_ranges {
-            if idx == *start && group_indices.iter().all(|i| !used_indices.contains(i)) {
-                group_found = true;
+        if let Some((start, end, group_indices, aligns)) = group_by_start.get(&idx) {
+            let (start, end, group_indices, aligns) = (*start, *end, group_indices, aligns);
+            if group_indices.iter().all(|i| !used_indices.contains(i)) {
                 let imgs: Vec<RgbImage> = group_indices
                     .iter()
                     .filter_map(|&gi| blocks[gi].crop.clone())
@@ -304,7 +305,7 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
                 }
 
                 let mut insert_list = Vec::new();
-                for n_idx in (start + 1)..=*end {
+                for n_idx in (start + 1)..=end {
                     if non_merge_blocks.contains_key(&n_idx) {
                         insert_list.push(n_idx);
                     }
@@ -314,7 +315,7 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
                     used_indices.insert(n_idx);
                 }
                 idx = end + 1;
-                break;
+                group_found = true;
             }
         }
         if group_found {

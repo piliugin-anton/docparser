@@ -1,5 +1,8 @@
 //! PaddleX `filter_overlap_boxes` for layout detections.
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
 use pp_doclayout_v3::LayoutElement;
 
 const SMALL_BOX_THRESHOLD: f32 = 6.0;
@@ -42,12 +45,17 @@ fn exception_labels() -> [&'static str; 4] {
     ["image", "table", "seal", "chart"]
 }
 
+fn exception_label_set() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| exception_labels().into_iter().collect())
+}
+
 fn should_skip_overlap_drop(label_a: &str, label_b: &str) -> bool {
-    let mut labels = std::collections::HashSet::new();
+    let mut labels = HashSet::new();
     labels.insert(label_a);
     labels.insert(label_b);
-    let exc: std::collections::HashSet<_> = exception_labels().into_iter().collect();
-    if labels.intersection(&exc).count() <= 1 {
+    let exc = exception_label_set();
+    if labels.intersection(exc).count() <= 1 {
         return false;
     }
     if !labels.contains("table") {

@@ -1,9 +1,9 @@
 [package]
-name = "pp-lcnet-doc-ori"
+name = "docparser-doc-prep"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "PP-LCNet document orientation classification (Candle + safetensors)"
+description = "Document orientation and unwarping models (Candle + safetensors)"
 
 [features]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "docparser-candle-utils/mkl"]

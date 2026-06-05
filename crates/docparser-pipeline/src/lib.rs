@@ -9,6 +9,7 @@ mod layout_nms;
 mod layout_postprocess;
 mod markdown;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use candle_core::Device;
@@ -143,6 +144,8 @@ pub struct DocumentPipeline {
     config: PipelineConfig,
     vl_model_name: String,
     layout_model_name: String,
+    non_merge_labels: Vec<String>,
+    markdown_ignore_set: HashSet<String>,
 }
 
 impl DocumentPipeline {
@@ -161,6 +164,13 @@ impl DocumentPipeline {
             &config.doc_preprocess,
         )?;
 
+        let non_merge_labels = non_merge_labels(
+            config.use_chart_recognition,
+            config.use_seal_recognition,
+            config.use_ocr_for_image_block,
+        );
+        let markdown_ignore_set = config.markdown_ignore_labels.iter().cloned().collect();
+
         Ok(Self {
             vl_model_name: paths.vlm.display().to_string(),
             layout_model_name: paths.layout.display().to_string(),
@@ -168,6 +178,8 @@ impl DocumentPipeline {
             vlm,
             doc_prep,
             config,
+            non_merge_labels,
+            markdown_ignore_set,
         })
     }
 
@@ -242,12 +254,7 @@ impl DocumentPipeline {
             .collect();
 
         if self.config.merge_layout_blocks {
-            let nm = non_merge_labels(
-                self.config.use_chart_recognition,
-                self.config.use_seal_recognition,
-                self.config.use_ocr_for_image_block,
-            );
-            crop_blocks = merge_blocks(crop_blocks, &nm);
+            crop_blocks = merge_blocks(crop_blocks, &self.non_merge_labels);
         }
 
         let mut blocks = Vec::new();
@@ -280,10 +287,7 @@ impl DocumentPipeline {
         }
 
         let markdown = if self.config.include_markdown {
-            Some(blocks_to_markdown(
-                &blocks,
-                &self.config.markdown_ignore_labels,
-            ))
+            Some(blocks_to_markdown(&blocks, &self.markdown_ignore_set))
         } else {
             None
         };

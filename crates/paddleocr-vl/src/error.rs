@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use docparser_candle_utils::CandleUtilsError;
+use docparser_candle_utils::{CandleUtilsError, LazyRunnerAccessError};
 
 #[derive(Debug, Error)]
 pub enum VlmError {
@@ -27,3 +27,12 @@ pub enum VlmError {
 }
 
 pub type Result<T> = std::result::Result<T, VlmError>;
+
+impl From<LazyRunnerAccessError> for VlmError {
+    fn from(err: LazyRunnerAccessError) -> Self {
+        match err {
+            LazyRunnerAccessError::LockPoisoned => Self::LockPoisoned,
+            LazyRunnerAccessError::RunnerNotLoaded => Self::RunnerNotLoaded,
+        }
+    }
+}

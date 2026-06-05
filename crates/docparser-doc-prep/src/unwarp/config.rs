@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{Result, UvdocError};
+use super::{Result, UvdocError};
 
 fn json_u64(value: &Value, field: &str) -> Result<usize> {
     value

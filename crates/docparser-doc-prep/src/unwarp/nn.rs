@@ -1,37 +1,9 @@
 use candle_core::{Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Module, VarBuilder};
+use docparser_candle_utils::batch_norm::BatchNorm2d;
 
-use crate::config::UvdocConfig;
-use crate::padding::reflect_pad2d;
-
-pub struct BatchNorm2d {
-    weight: Tensor,
-    bias: Tensor,
-    running_mean: Tensor,
-    running_var: Tensor,
-}
-
-impl BatchNorm2d {
-    pub fn load(ch: usize, vb: VarBuilder) -> Result<Self> {
-        Ok(Self {
-            weight: vb.get(ch, "weight")?,
-            bias: vb.get(ch, "bias")?,
-            running_mean: vb.get(ch, "running_mean")?,
-            running_var: vb.get(ch, "running_var")?,
-        })
-    }
-
-    pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let eps = 1e-5f64;
-        let w = self.weight.reshape((1, (), 1, 1))?;
-        let b = self.bias.reshape((1, (), 1, 1))?;
-        let rm = self.running_mean.reshape((1, (), 1, 1))?;
-        let rv = self.running_var.reshape((1, (), 1, 1))?;
-        let scale = (&w * (rv + eps)?.powf(-0.5)?)?;
-        let bias = (&b - (&rm * &scale)?)?;
-        x.broadcast_mul(&scale)?.broadcast_add(&bias)
-    }
-}
+use super::config::UvdocConfig;
+use super::padding::reflect_pad2d;
 
 pub struct Prelu {
     weight: Tensor,
@@ -368,8 +340,8 @@ impl UvdocNet {
     /// Rectify using flow upsampled to the original image size (HF `post_process_document_rectification`).
     pub fn rectify_with_flow(&self, original_bgr: &Tensor, flow: &Tensor) -> Result<Tensor> {
         let (_b, _c, oh, ow) = original_bgr.dims4()?;
-        let flow_up = crate::grid_sample::upsample_bilinear_align_corners(&flow, oh, ow)?;
+        let flow_up = super::grid_sample::upsample_bilinear_align_corners(&flow, oh, ow)?;
         let grid = flow_up.permute((0, 2, 3, 1))?;
-        crate::grid_sample::grid_sample_bilinear_align_corners(original_bgr, &grid)
+        super::grid_sample::grid_sample_bilinear_align_corners(original_bgr, &grid)
     }
 }

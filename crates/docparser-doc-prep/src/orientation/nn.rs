@@ -1,5 +1,6 @@
 use candle_core::{Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Linear, Module, VarBuilder};
+use docparser_candle_utils::batch_norm::BatchNorm2d;
 
 pub fn hardswish(xs: &Tensor) -> Result<Tensor> {
     let six = Tensor::new(6f32, xs.device())?.broadcast_as(xs.shape())?;
@@ -26,35 +27,6 @@ pub fn apply_activation(name: &str, xs: &Tensor) -> Result<Tensor> {
         "hardswish" => hardswish(xs),
         "relu" => xs.relu(),
         _ => Ok(xs.clone()),
-    }
-}
-
-pub struct BatchNorm2d {
-    weight: Tensor,
-    bias: Tensor,
-    running_mean: Tensor,
-    running_var: Tensor,
-}
-
-impl BatchNorm2d {
-    pub fn load(ch: usize, vb: VarBuilder) -> Result<Self> {
-        Ok(Self {
-            weight: vb.get(ch, "weight")?,
-            bias: vb.get(ch, "bias")?,
-            running_mean: vb.get(ch, "running_mean")?,
-            running_var: vb.get(ch, "running_var")?,
-        })
-    }
-
-    pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let eps = 1e-5f64;
-        let w = self.weight.reshape((1, (), 1, 1))?;
-        let b = self.bias.reshape((1, (), 1, 1))?;
-        let rm = self.running_mean.reshape((1, (), 1, 1))?;
-        let rv = self.running_var.reshape((1, (), 1, 1))?;
-        let scale = (&w * (rv + eps)?.powf(-0.5)?)?;
-        let bias = (&b - (&rm * &scale)?)?;
-        x.broadcast_mul(&scale)?.broadcast_add(&bias)
     }
 }
 
@@ -128,16 +100,16 @@ pub struct DepthwiseSeparable {
 
 impl DepthwiseSeparable {
     pub fn load(
-        spec: crate::config::BlockSpec,
+        spec: super::config::BlockSpec,
         scale: f64,
         divisor: usize,
         hidden_act: &str,
         reduction: usize,
-        cfg: &crate::config::PpLcnetConfig,
+        cfg: &super::config::PpLcnetConfig,
         vb: VarBuilder,
     ) -> Result<Self> {
-        let in_ch = crate::config::make_divisible(spec.in_channels as f64 * scale, divisor);
-        let out_ch = crate::config::make_divisible(spec.out_channels as f64 * scale, divisor);
+        let in_ch = super::config::make_divisible(spec.in_channels as f64 * scale, divisor);
+        let out_ch = super::config::make_divisible(spec.out_channels as f64 * scale, divisor);
         let depthwise = ConvBnAct::new(
             in_ch,
             in_ch,
@@ -192,9 +164,9 @@ pub struct PpLcnetModel {
 }
 
 impl PpLcnetModel {
-    pub fn load(cfg: &crate::config::PpLcnetConfig, vb: VarBuilder) -> Result<Self> {
+    pub fn load(cfg: &super::config::PpLcnetConfig, vb: VarBuilder) -> Result<Self> {
         let stem_ch =
-            crate::config::make_divisible(cfg.stem_channels as f64 * cfg.scale, cfg.divisor);
+            super::config::make_divisible(cfg.stem_channels as f64 * cfg.scale, cfg.divisor);
         let stem = ConvBnAct::new(
             3,
             stem_ch,
@@ -220,7 +192,7 @@ impl PpLcnetModel {
             }
             blocks.push(layers);
         }
-        let last_in = crate::config::make_divisible(
+        let last_in = super::config::make_divisible(
             cfg.block_configs
                 .last()
                 .and_then(|s| s.last())

@@ -1,4 +1,4 @@
-//! Slow inference smoke test (requires downloaded weights under `models/` or env `DOC_PREP_MODELS_DIR`).
+//! Slow inference smoke tests (requires downloaded weights under `models/` or env `DOC_PREP_MODELS_DIR`).
 
 use std::path::PathBuf;
 
@@ -11,13 +11,32 @@ fn doc_orientation_classify_demo() {
         eprintln!("skip: missing {}", ori_dir.display());
         return;
     }
-    let model = pp_lcnet_doc_ori::DocOrientationModel::from_dir(&ori_dir).expect("load ori");
+    let model =
+        docparser_doc_prep::orientation::DocOrientationModel::from_dir(&ori_dir).expect("load ori");
     let img = image::open(fixture("ocr_demo2.jpg")).expect("open");
     let rgb = img.to_rgb8();
     let (angle, score) = model.classify(&rgb).expect("classify");
     assert!(score > 0.0);
     assert!(matches!(angle, 0 | 90 | 180 | 270));
     eprintln!("angle={angle} score={score:.4}");
+}
+
+#[test]
+#[ignore]
+fn uvdoc_rectify_demo() {
+    let base = model_base();
+    let uv_dir = base.join("UVDoc");
+    if !uv_dir.join("model.safetensors").is_file() {
+        eprintln!("skip: missing {}", uv_dir.display());
+        return;
+    }
+    let model = docparser_doc_prep::unwarp::UvdocModel::from_dir(&uv_dir).expect("load uvdoc");
+    let img = image::open(fixture("ocr_demo2.jpg"))
+        .expect("open")
+        .to_rgb8();
+    let out = model.rectify(&img).expect("rectify");
+    assert!(out.width() > 0 && out.height() > 0);
+    eprintln!("rectified size={:?}", out.dimensions());
 }
 
 fn model_base() -> PathBuf {
