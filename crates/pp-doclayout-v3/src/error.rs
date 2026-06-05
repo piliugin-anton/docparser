@@ -18,14 +18,10 @@ pub enum LayoutError {
     LockPoisoned,
     #[error("runner missing after initialization")]
     RunnerNotLoaded,
+    #[error("image resize: {0}")]
+    ImageResize(String),
     #[error("{0}")]
     Message(String),
-}
-
-impl From<anyhow::Error> for LayoutError {
-    fn from(err: anyhow::Error) -> Self {
-        Self::Message(err.to_string())
-    }
 }
 
 pub type Result<T> = std::result::Result<T, LayoutError>;

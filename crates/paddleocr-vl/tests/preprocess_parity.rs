@@ -1,9 +1,14 @@
-use docparser_test_utils::{assert_input_ids_eq, load_golden_rel, run_slow_enabled, workspace_root};
+use docparser_test_utils::{
+    assert_input_ids_eq, load_golden_rel, run_slow_enabled, workspace_root,
+};
 use paddleocr_vl::VlmTask;
 
 #[test]
 fn task_prompt_mapping() {
-    assert_eq!(paddleocr_vl::task_for_layout_label("table").prompt(), "Table Recognition:");
+    assert_eq!(
+        paddleocr_vl::task_for_layout_label("table").prompt(),
+        "Table Recognition:"
+    );
     assert_eq!(paddleocr_vl::task_for_layout_label("text").prompt(), "OCR:");
     assert_eq!(
         paddleocr_vl::task_for_layout_label("display_formula").prompt(),
@@ -14,34 +19,19 @@ fn task_prompt_mapping() {
 #[test]
 fn should_run_vlm_gating() {
     assert!(paddleocr_vl::should_run_vlm_for_label(
-        "footnote",
-        false,
-        false,
-        false
+        "footnote", false, false, false
     ));
     assert!(!paddleocr_vl::should_run_vlm_for_label(
-        "chart",
-        false,
-        false,
-        false
+        "chart", false, false, false
     ));
     assert!(paddleocr_vl::should_run_vlm_for_label(
-        "text",
-        false,
-        false,
-        false
+        "text", false, false, false
     ));
     assert!(!paddleocr_vl::should_run_vlm_for_label(
-        "image",
-        false,
-        false,
-        false
+        "image", false, false, false
     ));
     assert!(paddleocr_vl::should_run_vlm_for_label(
-        "image",
-        false,
-        false,
-        true
+        "image", false, false, true
     ));
 }
 
@@ -65,13 +55,22 @@ fn preprocess_golden_values() {
     let ids = vlm
         .preprocess_input_ids(&rgb, VlmTask::Ocr)
         .expect("preprocess");
-    assert_eq!(ids.len(), golden["input_ids_len"].as_u64().unwrap() as usize);
-    if golden.get("input_ids").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()) {
+    assert_eq!(
+        ids.len(),
+        golden["input_ids_len"].as_u64().unwrap() as usize
+    );
+    if golden
+        .get("input_ids")
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty())
+    {
         assert_input_ids_eq(&ids, &golden);
     }
 
     if let Some(expected_grid) = golden.get("grid_thw").and_then(|v| v.as_array()) {
-        let grid = vlm.preprocess_grid_thw(&rgb, VlmTask::Ocr).expect("grid_thw");
+        let grid = vlm
+            .preprocess_grid_thw(&rgb, VlmTask::Ocr)
+            .expect("grid_thw");
         assert_eq!(grid.len(), expected_grid.len(), "grid_thw batch size");
         for (row, exp_row) in grid.iter().zip(expected_grid.iter()) {
             let exp: Vec<u32> = exp_row

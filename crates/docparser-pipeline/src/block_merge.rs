@@ -1,6 +1,6 @@
 //! PaddleX `merge_blocks`: merge adjacent text crops into composite VLM images.
 
-use image::{imageops, Rgb, RgbImage};
+use image::{Rgb, RgbImage, imageops};
 
 use pp_doclayout_v3::LayoutElement;
 
@@ -49,9 +49,8 @@ pub fn calculate_projection_overlap_ratio(
     if overlap <= 0.0 {
         return 0.0;
     }
-    let ref_width = bbox1[end_index]
-        .max(bbox2[end_index])
-        - bbox1[start_index].min(bbox2[start_index]);
+    let ref_width =
+        bbox1[end_index].max(bbox2[end_index]) - bbox1[start_index].min(bbox2[start_index]);
     if ref_width > 0.0 {
         overlap / ref_width
     } else {
@@ -113,7 +112,12 @@ fn merge_images(images: &[RgbImage], aligns: &[&str]) -> RgbImage {
     let mut canvas = RgbImage::from_pixel(merged_w, total_h, Rgb([255, 255, 255]));
     let mut y_offset = 0u32;
     for (i, img) in images.iter().enumerate() {
-        imageops::overlay(&mut canvas, img, i64::from(x_offsets[i]), i64::from(y_offset));
+        imageops::overlay(
+            &mut canvas,
+            img,
+            i64::from(x_offsets[i]),
+            i64::from(y_offset),
+        );
         y_offset += img.height();
     }
     canvas
@@ -216,9 +220,7 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
             && prev_label == "text"
             && block_bbox[3] >= prev_bbox[1]
             && (block_bbox[1] - prev_bbox[3]).abs()
-                < (prev_bbox[3] - prev_bbox[1])
-                    .max(block_bbox[3] - block_bbox[1])
-                    * 0.5
+                < (prev_bbox[3] - prev_bbox[1]).max(block_bbox[3] - block_bbox[1]) * 0.5
             && (is_aligned(block_bbox[0], prev_bbox[0]) ^ is_aligned(block_bbox[2], prev_bbox[2]))
             && overlap_with_other_box(idx, prev_idx, &blocks, non_merge_labels);
 
@@ -247,8 +249,10 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
 
     let mut group_ranges: Vec<(usize, usize, Vec<usize>, Vec<&'static str>)> = Vec::new();
     for (group_indices, aligns) in merged_groups {
-        let start = *group_indices.iter().min().unwrap();
-        let end = *group_indices.iter().max().unwrap();
+        let (Some(&start), Some(&end)) = (group_indices.iter().min(), group_indices.iter().max())
+        else {
+            continue;
+        };
         group_ranges.push((start, end, group_indices, aligns));
     }
 
@@ -334,8 +338,8 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
     use pp_doclayout_v3::LayoutElement;
+    use proptest::prelude::*;
 
     fn block(id: usize, label: &str, h: u32) -> CropBlock {
         CropBlock {

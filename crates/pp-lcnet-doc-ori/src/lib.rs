@@ -10,5 +10,5 @@ mod rotate;
 pub use config::PpLcnetConfig;
 pub use error::{DocOriError, Result};
 pub use model::DocOrientationModel;
-pub use preprocess::{preprocess, PreprocessorConfig};
+pub use preprocess::{PreprocessorConfig, preprocess};
 pub use rotate::{rotate_by_angle, rotate_rgb};

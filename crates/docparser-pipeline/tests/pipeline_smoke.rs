@@ -15,8 +15,8 @@ fn pipeline_smoke_layout_demo() {
         panic!("missing models; run docparser-download");
     }
     let fixture = workspace_root().join("tests/fixtures/layout_demo.jpg");
-    let pipeline =
-        DocumentPipeline::from_models_dir(&models_dir, PipelineConfig::default()).expect("pipeline");
+    let pipeline = DocumentPipeline::from_models_dir(&models_dir, PipelineConfig::default())
+        .expect("pipeline");
     let result = pipeline.parse_path(&fixture).expect("parse");
     assert!(!result.blocks.is_empty());
     assert_eq!(result.pipeline_version, "v1.6");

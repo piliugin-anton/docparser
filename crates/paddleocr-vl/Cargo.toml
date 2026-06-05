@@ -9,7 +9,6 @@ description = "PaddleOCR-VL-1.6 inference from HuggingFace artifacts (Candle)"
 mkl = ["candle-core/mkl", "candle-nn/mkl", "docparser-candle-utils/mkl"]
 
 [dependencies]
-anyhow = "1"
 candle-core.workspace = true
 candle-nn.workspace = true
 docparser-candle-utils = { path = "../docparser-candle-utils" }

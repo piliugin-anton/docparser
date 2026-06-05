@@ -9,7 +9,6 @@ description = "PP-DocLayoutV3 layout detection (native Candle inference + safete
 mkl = ["candle-core/mkl", "candle-nn/mkl", "docparser-candle-utils/mkl"]
 
 [dependencies]
-anyhow = "1"
 candle-core.workspace = true
 candle-nn.workspace = true
 docparser-candle-utils = { path = "../docparser-candle-utils" }

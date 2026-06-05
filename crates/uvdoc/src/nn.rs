@@ -76,16 +76,7 @@ impl UvConv {
         vb: VarBuilder,
     ) -> Result<Self> {
         Self::new_with_options(
-            in_ch,
-            out_ch,
-            kernel,
-            stride,
-            padding,
-            dilation,
-            activation,
-            false,
-            0,
-            vb,
+            in_ch, out_ch, kernel, stride, padding, dilation, activation, false, 0, vb,
         )
     }
 
@@ -152,12 +143,7 @@ pub struct ReflectConv2d {
 }
 
 impl ReflectConv2d {
-    pub fn load(
-        in_ch: usize,
-        out_ch: usize,
-        kernel: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    pub fn load(in_ch: usize, out_ch: usize, kernel: usize, vb: VarBuilder) -> Result<Self> {
         let pad = kernel / 2;
         let conv = candle_nn::conv2d(
             in_ch,

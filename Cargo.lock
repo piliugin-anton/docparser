@@ -572,6 +572,18 @@ dependencies = [
 
 [[package]]
 name = "console"
+version = "0.15.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "console"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
@@ -838,10 +850,10 @@ dependencies = [
 name = "docparser-pipeline"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "candle-core",
  "docparser-test-utils",
  "image",
+ "insta",
  "paddleocr-vl",
  "pp-doclayout-v3",
  "pp-lcnet-doc-ori",
@@ -1728,11 +1740,24 @@ version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
 dependencies = [
- "console",
+ "console 0.16.3",
  "portable-atomic",
  "unicode-width",
  "unit-prefix",
  "web-time",
+]
+
+[[package]]
+name = "insta"
+version = "1.41.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e9ffc4d4892617c50a928c52b2961cb5174b6fc6ebf252b2fac9d21955c48b8"
+dependencies = [
+ "console 0.15.11",
+ "lazy_static",
+ "linked-hash-map",
+ "serde",
+ "similar",
 ]
 
 [[package]]
@@ -1914,6 +1939,12 @@ checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"
@@ -2316,7 +2347,6 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 name = "paddleocr-vl"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "candle-core",
  "candle-nn",
  "docparser-candle-utils",
@@ -2416,7 +2446,6 @@ dependencies = [
 name = "pp-doclayout-v3"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "candle-core",
  "candle-nn",
  "docparser-candle-utils",
@@ -2434,7 +2463,6 @@ dependencies = [
 name = "pp-lcnet-doc-ori"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "candle-core",
  "candle-nn",
  "docparser-candle-utils",
@@ -3253,6 +3281,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3893,7 +3927,6 @@ dependencies = [
 name = "uvdoc"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "candle-core",
  "candle-nn",
  "docparser-candle-utils",
@@ -4216,6 +4249,15 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
+dependencies = [
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
 ]

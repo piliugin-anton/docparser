@@ -1,6 +1,6 @@
 use docparser_pipeline::{
-    filter_overlap_boxes, layout_nms, merge_layout_blocks, merge_layout_blocks_with_mode_fn,
-    merge_mode_for_label, unclip_bbox, MergeBboxesMode,
+    MergeBboxesMode, filter_overlap_boxes, layout_nms, merge_layout_blocks,
+    merge_layout_blocks_with_mode_fn, merge_mode_for_label, unclip_bbox,
 };
 use pp_doclayout_v3::LayoutElement;
 

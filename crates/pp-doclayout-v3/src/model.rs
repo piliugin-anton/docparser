@@ -3,15 +3,14 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::Result;
 use candle_core::{Device, Tensor};
 use image::RgbImage;
 
 use crate::image_processor::LayoutImageProcessor;
 use crate::postprocess::post_process_object_detection;
-use crate::preprocess::preprocess;
 use crate::pp_doclayout_v3::{PpDocLayoutV3Config, PpDocLayoutV3ForObjectDetection};
-use crate::LayoutElement;
+use crate::preprocess::preprocess;
+use crate::{LayoutElement, LayoutError, Result};
 
 pub struct LayoutRunner {
     model: PpDocLayoutV3ForObjectDetection,
@@ -24,10 +23,9 @@ pub struct LayoutRunner {
 impl LayoutRunner {
     pub fn load(model_dir: &Path, detection_threshold: f32) -> Result<Self> {
         let device = Device::Cpu;
-        let cfg = PpDocLayoutV3Config::from_dir(model_dir)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let cfg = PpDocLayoutV3Config::from_dir(model_dir)?;
         let model = PpDocLayoutV3ForObjectDetection::load(model_dir, &device)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .map_err(LayoutError::Candle)?;
         let image_processor = LayoutImageProcessor::from_dir(model_dir)?;
         Ok(Self {
             id2label: cfg.id2label_map(),
@@ -48,7 +46,7 @@ impl LayoutRunner {
         let outputs = self
             .model
             .forward(&prep.pixel_values, &pixel_mask)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .map_err(LayoutError::Candle)?;
         post_process_object_detection(
             &outputs,
             prep.orig_height,
@@ -56,6 +54,6 @@ impl LayoutRunner {
             &self.id2label,
             self.detection_threshold,
         )
-        .map_err(|e| anyhow::anyhow!("{e}"))
+        .map_err(LayoutError::Candle)
     }
 }

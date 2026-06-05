@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
-use candle_nn::{embedding, linear_b, rms_norm, Embedding, Linear, Module, RmsNorm, VarBuilder};
+use candle_core::{D, DType, Device, IndexOp, Result, Tensor};
+use candle_nn::{Embedding, Linear, Module, RmsNorm, VarBuilder, embedding, linear_b, rms_norm};
 
 use super::config::TextConfig;
 
@@ -173,7 +173,7 @@ impl RotaryEmbedding {
 
         for (i, &sec_size) in sections_repeated.iter().enumerate() {
             let dim_idx = i % 3; // Cycles: temporal(0), height(1), width(2), temporal(0), ...
-                                 // Take slice from dimension dim_idx at the current offset
+            // Take slice from dimension dim_idx at the current offset
             let cos_slice = cos_3d.i(dim_idx)?.narrow(D::Minus1, offset, sec_size)?;
             let sin_slice = sin_3d.i(dim_idx)?.narrow(D::Minus1, offset, sec_size)?;
             cos_parts.push(cos_slice);
@@ -854,12 +854,9 @@ impl Attention {
         // Compute attention (matches eager_attention_forward_ernie)
         let attn_output = {
             // attn_weights = query @ key^T * scaling
-            let attn_weights = (docparser_candle_utils::matmul_transpose(
-                &query_states,
-                &key_states,
-                2,
-                3,
-            )? * self.softmax_scale)?;
+            let attn_weights =
+                (docparser_candle_utils::matmul_transpose(&query_states, &key_states, 2, 3)?
+                    * self.softmax_scale)?;
 
             // Apply causal mask
             let attn_weights = match attention_mask {
@@ -945,12 +942,9 @@ impl Attention {
         tensors.insert("v_repeated".to_string(), value_states_repeated.clone());
 
         // Attention scores: Q @ K^T * scaling (matches: torch.matmul(query, key_states.transpose(2, 3)) * scaling)
-        let attn_weights_pre = (docparser_candle_utils::matmul_transpose(
-            &query_states,
-            &key_states_repeated,
-            2,
-            3,
-        )? * self.softmax_scale)?;
+        let attn_weights_pre =
+            (docparser_candle_utils::matmul_transpose(&query_states, &key_states_repeated, 2, 3)?
+                * self.softmax_scale)?;
         // Skip exporting full attention matrices - too large ([1, 16, 1357, 1357])
         // Just export a slice for verification: last row of attention for each head
         let seq_len = attn_weights_pre.dim(2)?;

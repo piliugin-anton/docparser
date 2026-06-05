@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -13,7 +11,9 @@ fn models_available() -> bool {
     let base = workspace_root().join("models");
     base.join("PaddleOCR-VL-1.6/model.safetensors").is_file()
         && base.join("PP-DocLayoutV3/model.safetensors").is_file()
-        && base.join("PP-LCNet_x1_0_doc_ori/model.safetensors").is_file()
+        && base
+            .join("PP-LCNet_x1_0_doc_ori/model.safetensors")
+            .is_file()
         && base.join("UVDoc/model.safetensors").is_file()
 }
 
@@ -32,15 +32,18 @@ fn health_route_returns_ok_when_models_loaded() {
     )
     .expect("load pipeline");
 
-    let state = AppState {
-        pipeline: Arc::new(Mutex::new(pipeline)),
-    };
+    let state = AppState::new(pipeline, config.inference_queue_depth);
     let app = build_router(state, 20 * 1024 * 1024);
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let response = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -62,9 +65,7 @@ fn parse_rejects_missing_file_field() {
     )
     .expect("load pipeline");
 
-    let state = AppState {
-        pipeline: Arc::new(Mutex::new(pipeline)),
-    };
+    let state = AppState::new(pipeline, config.inference_queue_depth);
     let app = build_router(state, config.max_upload_mb * 1024 * 1024);
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -111,9 +112,7 @@ fn parse_ocr_demo2_returns_blocks() {
     )
     .expect("load pipeline");
 
-    let state = AppState {
-        pipeline: Arc::new(Mutex::new(pipeline)),
-    };
+    let state = AppState::new(pipeline, config.inference_queue_depth);
     let app = build_router(state, config.max_upload_mb * 1024 * 1024);
 
     let bytes = std::fs::read(&fixture).expect("read fixture");

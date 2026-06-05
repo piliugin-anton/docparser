@@ -9,7 +9,6 @@ description = "UVDoc document unwarping (Candle + safetensors)"
 mkl = ["candle-core/mkl", "candle-nn/mkl", "docparser-candle-utils/mkl"]
 
 [dependencies]
-anyhow = "1"
 thiserror = "2"
 candle-core.workspace = true
 candle-nn.workspace = true

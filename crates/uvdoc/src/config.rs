@@ -1,15 +1,17 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::{Result, UvdocError};
 
 fn json_u64(value: &Value, field: &str) -> Result<usize> {
     value
         .as_u64()
         .map(|n| n as usize)
-        .ok_or_else(|| {
-            anyhow::anyhow!("config field `{field}`: expected unsigned integer, got {value}")
+        .ok_or_else(|| UvdocError::InvalidConfigField {
+            field: field.to_string(),
+            value: value.to_string(),
         })
 }
 
@@ -36,7 +38,7 @@ impl UvdocConfig {
     pub fn from_dir(model_dir: &Path) -> Result<Self> {
         let path = model_dir.join("config.json");
         let data = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+            .map_err(|e| UvdocError::Message(format!("read {}: {e}", path.display())))?;
         #[derive(Deserialize)]
         struct Root {
             kernel_size: Option<usize>,
@@ -66,7 +68,7 @@ impl UvdocConfig {
             let mut specs = Vec::new();
             for item in stage {
                 if item.len() < 4 {
-                    bail!("resnet_configs entry must have at least 4 fields");
+                    return Err(UvdocError::InvalidResnetConfig);
                 }
                 let in_ch = json_u64(&item[0], "resnet_configs.in_ch")?;
                 let out_ch = json_u64(&item[1], "resnet_configs.out_ch")?;
@@ -82,9 +84,9 @@ impl UvdocConfig {
             .iter()
             .map(|stage| stage.iter().map(|p| [p[0], p[1]]).collect())
             .collect();
-        let out_point = root.out_point_positions2d.unwrap_or_else(|| {
-            vec![vec![128, 32], vec![32, 2]]
-        });
+        let out_point = root
+            .out_point_positions2d
+            .unwrap_or_else(|| vec![vec![128, 32], vec![32, 2]]);
         Ok(Self {
             kernel_size: root.kernel_size.unwrap_or(5),
             bridge_connector: {

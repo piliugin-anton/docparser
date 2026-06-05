@@ -9,7 +9,6 @@ mkl = ["paddleocr-vl/mkl", "pp-doclayout-v3/mkl", "pp-lcnet-doc-ori/mkl", "uvdoc
 
 [dependencies]
 thiserror = "2"
-anyhow = "1"
 candle-core.workspace = true
 image = "0.25"
 paddleocr-vl = { path = "../paddleocr-vl" }
@@ -23,4 +22,5 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 docparser-test-utils = { path = "../docparser-test-utils" }
+insta = { version = "1", features = ["json"] }
 proptest = "1"

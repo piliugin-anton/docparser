@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use serde::Deserialize;
+
+use crate::{DocOriError, Result};
 
 #[derive(Debug, Clone)]
 pub struct PpLcnetConfig {
@@ -31,7 +32,7 @@ impl PpLcnetConfig {
     pub fn from_dir(model_dir: &Path) -> Result<Self> {
         let path = model_dir.join("config.json");
         let data = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+            .map_err(|e| DocOriError::Message(format!("read {}: {e}", path.display())))?;
         #[derive(Deserialize)]
         struct Root {
             scale: Option<f64>,

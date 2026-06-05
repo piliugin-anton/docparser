@@ -41,8 +41,7 @@ pub fn upsample_bilinear_align_corners(x: &Tensor, out_h: usize, out_w: usize) -
                     let v01 = data[base_in + sy0 * in_w + sx1];
                     let v10 = data[base_in + sy1 * in_w + sx0];
                     let v11 = data[base_in + sy1 * in_w + sx1];
-                    out[base_out + ty * out_w + tx] =
-                        w00 * v00 + w01 * v01 + w10 * v10 + w11 * v11;
+                    out[base_out + ty * out_w + tx] = w00 * v00 + w01 * v01 + w10 * v10 + w11 * v11;
                 }
             }
         }

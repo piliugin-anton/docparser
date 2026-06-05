@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use docparser_test_utils::{
-    assert_u32_ids_eq, load_golden_rel, run_slow_enabled, workspace_root,
-};
+use docparser_test_utils::{assert_u32_ids_eq, load_golden_rel, run_slow_enabled, workspace_root};
 use paddleocr_vl::{VlmModel, VlmTask};
 
 const GOLDEN_REL: &str = "tests/goldens/vlm_generate_ocr_demo2.json";
@@ -33,7 +31,9 @@ fn generate_ocr_demo2_matches_golden() {
         return;
     }
     if !workspace_root().join(GOLDEN_REL).is_file() {
-        panic!("missing {GOLDEN_REL}; run: cargo run -p paddleocr-vl --bin vlm_write_golden --release");
+        panic!(
+            "missing {GOLDEN_REL}; run: cargo run -p paddleocr-vl --bin vlm_write_golden --release"
+        );
     }
     let golden = load_golden_rel(GOLDEN_REL);
     let (model_dir, image_path) = require_vlm();

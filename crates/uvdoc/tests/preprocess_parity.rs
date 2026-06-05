@@ -1,6 +1,6 @@
 use candle_core::{Device, IndexOp};
 use docparser_test_utils::{load_golden_rel, run_slow_enabled, workspace_root};
-use uvdoc::{preprocess, PreprocessorConfig, UvdocModel};
+use uvdoc::{PreprocessorConfig, UvdocModel, preprocess};
 
 #[test]
 #[ignore = "set RUN_SLOW=1"]

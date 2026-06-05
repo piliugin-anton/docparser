@@ -65,6 +65,7 @@ pub fn apply_layout_postprocess(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prop_assert;
 
     #[test]
     fn unclip_identity_at_one() {
@@ -81,5 +82,39 @@ mod tests {
         let out = unclip_bbox(b, (1.2, 1.2));
         assert!((out[0] - (-10.0)).abs() < 1e-4);
         assert!((out[2] - 110.0).abs() < 1e-4);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn clamp_bbox_stays_inside_image(
+            x1 in 0.0f32..200.0,
+            y1 in 0.0f32..200.0,
+            x2 in 1.0f32..400.0,
+            y2 in 1.0f32..400.0,
+            img_w in 1u32..300,
+            img_h in 1u32..300,
+        ) {
+            let bbox = [x1.min(x2), y1.min(y2), x1.max(x2), y1.max(y2)];
+            let out = clamp_bbox_to_image(bbox, img_w, img_h);
+            let w = img_w as f32;
+            let h = img_h as f32;
+            prop_assert!(out[0] >= 0.0 && out[1] >= 0.0);
+            prop_assert!(out[2] <= w && out[3] <= h);
+            prop_assert!(out[0] <= out[2] && out[1] <= out[3]);
+        }
+
+        #[test]
+        fn unclip_ratio_one_is_identity(
+            x1 in 0.0f32..100.0,
+            y1 in 0.0f32..100.0,
+            w in 1.0f32..100.0,
+            h in 1.0f32..100.0,
+        ) {
+            let bbox = [x1, y1, x1 + w, y1 + h];
+            let out = unclip_bbox(bbox, (1.0, 1.0));
+            for i in 0..4 {
+                prop_assert!((out[i] - bbox[i]).abs() < 1e-4, "out={out:?} bbox={bbox:?}");
+            }
+        }
     }
 }

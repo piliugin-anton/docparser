@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
-use candle_core::{Device, DType, Tensor};
+use crate::{DocOriError, Result};
+use candle_core::{DType, Device, Tensor};
 use image::RgbImage;
 use serde::Deserialize;
 
@@ -41,11 +41,7 @@ impl PreprocessorConfig {
 }
 
 /// Matches HF `PPLCNetImageProcessor`: bilinear resize (PIL), center crop, normalize RGB, swap to BGR.
-pub fn preprocess(
-    image: &RgbImage,
-    cfg: &PreprocessorConfig,
-    device: &Device,
-) -> Result<Tensor> {
+pub fn preprocess(image: &RgbImage, cfg: &PreprocessorConfig, device: &Device) -> Result<Tensor> {
     let (w, h) = image.dimensions();
     let short = h.min(w) as f32;
     let scale = cfg.resize_short as f32 / short;
@@ -71,9 +67,9 @@ pub fn preprocess(
         }
     }
     Ok(Tensor::from_vec(data, (1, 3, crop, crop), device)
-        .context("build pixel tensor")?
+        .map_err(DocOriError::Candle)?
         .to_dtype(DType::F32)
-        .context("dtype")?)
+        .map_err(DocOriError::Candle)?)
 }
 
 fn resize_bilinear(image: &RgbImage, target_w: u32, target_h: u32) -> Result<RgbImage> {

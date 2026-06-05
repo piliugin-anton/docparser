@@ -2,8 +2,8 @@
 //!
 //! NaViT-style dynamic resolution visual encoder with 2D rotary position embeddings.
 
-use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
-use candle_nn::{layer_norm, linear_b, LayerNorm, LayerNormConfig, Linear, Module, VarBuilder};
+use candle_core::{D, DType, Device, IndexOp, Result, Tensor};
+use candle_nn::{LayerNorm, LayerNormConfig, Linear, Module, VarBuilder, layer_norm, linear_b};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -89,9 +89,9 @@ struct PatchEmbedding {
     patch_embedding: candle_nn::Conv2d,
     position_embedding: Tensor, // (num_positions, hidden_size) where num_positions = (image_size/patch_size)^2
     // Loaded from checkpoint for weight compatibility; inference uses interpolated `position_embedding`.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // kept so safetensors state dict keys load without shape remapping
     packing_position_embedding: candle_nn::Embedding,
-    base_grid_size: usize,      // sqrt(num_positions), typically 27 for 384/14
+    base_grid_size: usize, // sqrt(num_positions), typically 27 for 384/14
     hidden_size: usize,
     /// Cache for interpolated position embeddings (LFU eviction)
     pos_embed_cache: RefCell<PosEmbedCache>,
@@ -324,8 +324,7 @@ fn chunked_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64) -> Result<T
 
     // For small sequences, use standard attention (fits in memory)
     if kv_seq <= ATTENTION_TILE_SIZE {
-        let attn_weights =
-            (docparser_candle_utils::matmul_transpose(q, k, 2, 3)? * scale)?;
+        let attn_weights = (docparser_candle_utils::matmul_transpose(q, k, 2, 3)? * scale)?;
         let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
         return docparser_candle_utils::matmul_contig_rhs(&attn_weights, v);
     }
@@ -361,7 +360,8 @@ fn chunked_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64) -> Result<T
             .to_dtype(DType::F32)?;
 
         // Compute scores for this tile: (1, heads, q_seq, tile_len)
-        let scores_tile = (docparser_candle_utils::matmul_transpose(&q_f32, &k_tile, 2, 3)? * scale)?;
+        let scores_tile =
+            (docparser_candle_utils::matmul_transpose(&q_f32, &k_tile, 2, 3)? * scale)?;
 
         // Get tile max: (1, heads, q_seq, 1)
         let tile_max = scores_tile.max_keepdim(D::Minus1)?;
@@ -378,8 +378,7 @@ fn chunked_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64) -> Result<T
         let exp_scores = scores_tile.broadcast_sub(&new_max)?.exp()?;
 
         // Update accumulators
-        output_accum =
-            (output_accum + docparser_candle_utils::matmul(&exp_scores, &v_tile)?)?;
+        output_accum = (output_accum + docparser_candle_utils::matmul(&exp_scores, &v_tile)?)?;
         sum_exps = (sum_exps + exp_scores.sum_keepdim(D::Minus1)?)?;
 
         max_scores = new_max;

@@ -1,14 +1,13 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use crate::{Result, UvdocError};
-use anyhow::{bail, Result as AnyhowResult};
-use candle_core::{Device, DType, Tensor};
+use candle_core::{DType, Device, Tensor};
 use image::RgbImage;
 
 use crate::config::UvdocConfig;
 use crate::nn::UvdocNet;
-use crate::preprocess::{preprocess_with_original, PreprocessorConfig};
+use crate::preprocess::{PreprocessorConfig, preprocess_with_original};
+use crate::{Result, UvdocError};
 
 pub struct UvdocRunner {
     model: UvdocNet,
@@ -17,12 +16,12 @@ pub struct UvdocRunner {
 }
 
 impl UvdocRunner {
-    pub fn load(model_dir: &Path) -> AnyhowResult<Self> {
+    pub fn load(model_dir: &Path) -> Result<Self> {
         let device = Device::Cpu;
         let config = UvdocConfig::from_dir(model_dir)?;
         let preprocessor = PreprocessorConfig::from_dir(model_dir)?;
-        let vb = docparser_candle_utils::var_builder_from_safetensors(model_dir, DType::F32, &device)
-            .map_err(anyhow::Error::from)?;
+        let vb =
+            docparser_candle_utils::var_builder_from_safetensors(model_dir, DType::F32, &device)?;
         let model = UvdocNet::load(&config, vb)?;
         Ok(Self {
             model,
@@ -31,26 +30,26 @@ impl UvdocRunner {
         })
     }
 
-    pub fn rectify(&self, image: &RgbImage) -> AnyhowResult<RgbImage> {
+    pub fn rectify(&self, image: &RgbImage) -> Result<RgbImage> {
         let prep = preprocess_with_original(image, &self.preprocessor, &self.device)?;
         let flow = self.model.forward_flow(&prep.network_input)?;
-        let output = self
-            .model
-            .rectify_with_flow(&prep.original_bgr, &flow)?;
+        let output = self.model.rectify_with_flow(&prep.original_bgr, &flow)?;
         tensor_bgr_to_rgb(&output)
     }
 
-    pub fn forward_flow(&self, image: &RgbImage) -> AnyhowResult<Tensor> {
+    pub fn forward_flow(&self, image: &RgbImage) -> Result<Tensor> {
         let prep = preprocess_with_original(image, &self.preprocessor, &self.device)?;
-        Ok(self.model.forward_flow(&prep.network_input)?)
+        self.model
+            .forward_flow(&prep.network_input)
+            .map_err(UvdocError::Candle)
     }
 }
 
-fn tensor_bgr_to_rgb(out: &Tensor) -> AnyhowResult<RgbImage> {
+fn tensor_bgr_to_rgb(out: &Tensor) -> Result<RgbImage> {
     let out = out.squeeze(0)?.to_dtype(DType::F32)?;
     let (c, h, w) = out.dims3()?;
     if c != 3 {
-        bail!("expected 3-channel output, got {c}");
+        return Err(UvdocError::InvalidChannelCount { channels: c });
     }
     let data = out.flatten_all()?.to_vec1::<f32>()?;
     let mut img = RgbImage::new(w as u32, h as u32);
@@ -87,10 +86,7 @@ impl UvdocModel {
     }
 
     fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<UvdocRunner>>> {
-        let mut guard = self
-            .runner
-            .lock()
-            .map_err(|_| UvdocError::LockPoisoned)?;
+        let mut guard = self.runner.lock().map_err(|_| UvdocError::LockPoisoned)?;
         if guard.is_none() {
             *guard = Some(UvdocRunner::load(&self.model_dir)?);
         }
@@ -100,16 +96,14 @@ impl UvdocModel {
     fn runner_ref<'a>(
         guard: &'a std::sync::MutexGuard<'_, Option<UvdocRunner>>,
     ) -> Result<&'a UvdocRunner> {
-        guard
-            .as_ref()
-            .ok_or(UvdocError::RunnerNotLoaded)
+        guard.as_ref().ok_or(UvdocError::RunnerNotLoaded)
     }
 
     pub fn rectify(&self, image: &RgbImage) -> Result<RgbImage> {
-        Self::runner_ref(&self.runner()?)?.rectify(image).map_err(Into::into)
+        Self::runner_ref(&self.runner()?)?.rectify(image)
     }
 
     pub fn forward_flow(&self, image: &RgbImage) -> Result<candle_core::Tensor> {
-        Self::runner_ref(&self.runner()?)?.forward_flow(image).map_err(Into::into)
+        Self::runner_ref(&self.runner()?)?.forward_flow(image)
     }
 }

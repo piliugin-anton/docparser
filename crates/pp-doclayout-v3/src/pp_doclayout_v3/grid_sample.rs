@@ -1,6 +1,6 @@
 //! Bilinear `grid_sample` for deformable attention (align_corners=false).
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{D, Result, Tensor};
 
 /// `value`: (B*H, C, H, W), `grid`: (B*H, Q, P, 2) in [-1, 1].
 /// Returns (B*H, C, Q, P).
@@ -69,10 +69,12 @@ pub fn multiscale_deformable_attention(
         let n = height * width;
         let value_l = value.narrow(1, offset, n)?;
         offset += n;
-        let value_l = value_l
-            .flatten(2, 3)?
-            .transpose(1, 2)?
-            .reshape((batch * n_heads, head_dim, height, width))?;
+        let value_l = value_l.flatten(2, 3)?.transpose(1, 2)?.reshape((
+            batch * n_heads,
+            head_dim,
+            height,
+            width,
+        ))?;
         let grid_l = sampling_grids
             .narrow(3, level_id, 1)?
             .squeeze(3)?
@@ -82,9 +84,12 @@ pub fn multiscale_deformable_attention(
     }
     let stacked = Tensor::stack(&sampling_value_list, D::Minus1)?;
     let flat = stacked.flatten(3, 4)?;
-    let attn = attention_weights
-        .transpose(1, 2)?
-        .reshape((batch * n_heads, 1, num_queries, n_levels * n_points))?;
+    let attn = attention_weights.transpose(1, 2)?.reshape((
+        batch * n_heads,
+        1,
+        num_queries,
+        n_levels * n_points,
+    ))?;
     let out = flat.broadcast_mul(&attn)?.sum(D::Minus1)?;
     out.reshape((batch, n_heads * head_dim, num_queries))?
         .transpose(1, 2)

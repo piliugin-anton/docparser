@@ -43,7 +43,11 @@ fn run_layout_parity(fixture: &str, golden_rel: &str) {
                     model.config().label_for_id(lid),
                     "label mismatch for id {lid}"
                 );
-                assert_slice_near(&[el.score], &[det["score"].as_f64().unwrap() as f32], score_atol);
+                assert_slice_near(
+                    &[el.score],
+                    &[det["score"].as_f64().unwrap() as f32],
+                    score_atol,
+                );
                 let bbox: Vec<f32> = det["bbox"]
                     .as_array()
                     .unwrap()
@@ -84,5 +88,8 @@ fn layout_postprocess_matches_golden_count() {
 #[test]
 #[ignore = "set RUN_SLOW=1"]
 fn layout_postprocess_ocr_demo2() {
-    run_layout_parity("ocr_demo2.jpg", "tests/goldens/layout_postprocess_ocr_demo2.json");
+    run_layout_parity(
+        "ocr_demo2.jpg",
+        "tests/goldens/layout_postprocess_ocr_demo2.json",
+    );
 }

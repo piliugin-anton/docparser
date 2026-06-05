@@ -22,10 +22,4 @@ pub enum DocOriError {
     Message(String),
 }
 
-impl From<anyhow::Error> for DocOriError {
-    fn from(err: anyhow::Error) -> Self {
-        Self::Message(err.to_string())
-    }
-}
-
 pub type Result<T> = std::result::Result<T, DocOriError>;

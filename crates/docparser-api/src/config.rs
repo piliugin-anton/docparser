@@ -20,6 +20,8 @@ pub struct ApiConfig {
     pub models_dir: PathBuf,
     pub max_upload_mb: usize,
     pub max_tokens: usize,
+    /// Maximum parse jobs waiting for the dedicated inference worker.
+    pub inference_queue_depth: usize,
     pub pipeline: PipelineConfig,
 }
 
@@ -66,6 +68,10 @@ impl Default for ApiConfig {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(20),
             max_tokens: pipeline.max_tokens,
+            inference_queue_depth: std::env::var("INFERENCE_QUEUE_DEPTH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8),
             pipeline,
         }
     }

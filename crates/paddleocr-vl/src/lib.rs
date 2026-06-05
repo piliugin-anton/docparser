@@ -4,9 +4,8 @@ use std::path::{Path, PathBuf};
 
 mod error;
 
-pub use error::{Result, VlmError};
-use anyhow::Context;
 use candle_core::Device;
+pub use error::{Result, VlmError};
 use image::{DynamicImage, RgbImage};
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +84,7 @@ impl VlmConfig {
     pub fn from_dir(model_dir: &Path) -> Result<Self> {
         let path = model_dir.join("config.json");
         let data = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+            .map_err(|e| VlmError::Message(format!("read {}: {e}", path.display())))?;
         #[derive(Deserialize)]
         struct Root {
             hidden_size: u32,
@@ -128,12 +127,12 @@ impl VlmModel {
     }
 
     fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<model::VlmRunner>>> {
-        let mut guard = self
-            .runner
-            .lock()
-            .map_err(|_| VlmError::LockPoisoned)?;
+        let mut guard = self.runner.lock().map_err(|_| VlmError::LockPoisoned)?;
         if guard.is_none() {
-            *guard = Some(model::VlmRunner::load(&self.model_dir, self.device.clone())?);
+            *guard = Some(model::VlmRunner::load(
+                &self.model_dir,
+                self.device.clone(),
+            )?);
         }
         Ok(guard)
     }
@@ -141,17 +140,13 @@ impl VlmModel {
     fn runner_mut<'a>(
         guard: &'a mut std::sync::MutexGuard<'_, Option<model::VlmRunner>>,
     ) -> Result<&'a mut model::VlmRunner> {
-        guard
-            .as_mut()
-            .ok_or(VlmError::RunnerNotLoaded)
+        guard.as_mut().ok_or(VlmError::RunnerNotLoaded)
     }
 
     fn runner_ref<'a>(
         guard: &'a std::sync::MutexGuard<'_, Option<model::VlmRunner>>,
     ) -> Result<&'a model::VlmRunner> {
-        guard
-            .as_ref()
-            .ok_or(VlmError::RunnerNotLoaded)
+        guard.as_ref().ok_or(VlmError::RunnerNotLoaded)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -173,9 +168,7 @@ impl VlmModel {
         max_new_tokens: usize,
     ) -> Result<String> {
         let mut guard = self.runner()?;
-        Self::runner_mut(&mut guard)?
-            .generate(image, task, max_new_tokens)
-            .map_err(Into::into)
+        Self::runner_mut(&mut guard)?.generate(image, task, max_new_tokens)
     }
 
     /// Greedy-decode token ids (parity vs HF goldens).
@@ -186,21 +179,17 @@ impl VlmModel {
         max_new_tokens: usize,
     ) -> Result<Vec<u32>> {
         let mut guard = self.runner()?;
-        Self::runner_mut(&mut guard)?
-            .generate_token_ids(image, task, max_new_tokens)
-            .map_err(Into::into)
+        Self::runner_mut(&mut guard)?.generate_token_ids(image, task, max_new_tokens)
     }
 
     pub fn decode_token_ids(&self, tokens: &[u32]) -> Result<String> {
         let guard = self.runner()?;
-        Self::runner_ref(&guard)?.decode_token_ids(tokens).map_err(Into::into)
+        Self::runner_ref(&guard)?.decode_token_ids(tokens)
     }
 
     pub fn preprocess_grid_thw(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<Vec<u32>>> {
         let guard = self.runner()?;
-        Self::runner_ref(&guard)?
-            .preprocess_grid_thw(image, task)
-            .map_err(Into::into)
+        Self::runner_ref(&guard)?.preprocess_grid_thw(image, task)
     }
 
     pub fn generate_dynamic(
@@ -219,25 +208,19 @@ impl VlmModel {
         max_new_tokens: usize,
     ) -> Result<String> {
         let rgb = image::open(path.as_ref())
-            .with_context(|| format!("open image {}", path.as_ref().display()))?
+            .map_err(VlmError::Image)?
             .to_rgb8();
         self.generate(&rgb, task, max_new_tokens)
     }
 
     /// Build input token ids for parity tests (without running the model).
-    pub fn preprocess_input_ids_len(
-        &self,
-        image: &RgbImage,
-        task: VlmTask,
-    ) -> Result<usize> {
+    pub fn preprocess_input_ids_len(&self, image: &RgbImage, task: VlmTask) -> Result<usize> {
         Ok(self.preprocess_input_ids(image, task)?.len())
     }
 
     pub fn preprocess_input_ids(&self, image: &RgbImage, task: VlmTask) -> Result<Vec<u32>> {
         let guard = self.runner()?;
-        Self::runner_ref(&guard)?
-            .build_input_ids_vec(image, task)
-            .map_err(Into::into)
+        Self::runner_ref(&guard)?.build_input_ids_vec(image, task)
     }
 }
 

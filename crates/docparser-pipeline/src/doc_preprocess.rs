@@ -1,10 +1,11 @@
 //! Document preprocessor: orientation classification then geometric unwarping.
 
-use anyhow::Result;
 use image::DynamicImage;
 use pp_lcnet_doc_ori::DocOrientationModel;
 use serde::{Deserialize, Serialize};
 use uvdoc::UvdocModel;
+
+use crate::{PipelineError, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocPreprocessorConfig {
@@ -34,18 +35,14 @@ impl DocPreprocessor {
     ) -> Result<Self> {
         let orientation = if cfg.use_orientation {
             Some(DocOrientationModel::from_dir(
-                doc_ori_dir.ok_or_else(|| {
-                    anyhow::anyhow!("doc orientation model path required when use_orientation=true")
-                })?,
+                doc_ori_dir.ok_or(PipelineError::MissingDocOriPath)?,
             )?)
         } else {
             None
         };
         let unwarping = if cfg.use_unwarping {
             Some(UvdocModel::from_dir(
-                uvdoc_dir.ok_or_else(|| {
-                    anyhow::anyhow!("UVDoc model path required when use_unwarping=true")
-                })?,
+                uvdoc_dir.ok_or(PipelineError::MissingUvdocPath)?,
             )?)
         } else {
             None

@@ -1,9 +1,9 @@
-use anyhow::{Context, Result};
-use candle_core::{Device, DType, Tensor};
+use candle_core::{DType, Device, Tensor};
 use image::RgbImage;
 use serde::Deserialize;
 
 use crate::grid_sample::upsample_bilinear_align_corners;
+use crate::{Result, UvdocError};
 
 #[derive(Debug, Clone)]
 pub struct PreprocessorConfig {
@@ -51,11 +51,8 @@ pub fn preprocess_with_original(
     device: &Device,
 ) -> Result<PreprocessOutput> {
     let original_bgr = rgb_to_bgr_tensor(image, device)?;
-    let network_input = upsample_bilinear_align_corners(
-        &original_bgr,
-        cfg.height as usize,
-        cfg.width as usize,
-    )?;
+    let network_input =
+        upsample_bilinear_align_corners(&original_bgr, cfg.height as usize, cfg.width as usize)?;
     Ok(PreprocessOutput {
         network_input,
         original_bgr,
@@ -79,7 +76,7 @@ pub fn rgb_to_bgr_tensor(image: &RgbImage, device: &Device) -> Result<Tensor> {
         }
     }
     Tensor::from_vec(data, (1, 3, oh, ow), device)
-        .context("original bgr tensor")?
+        .map_err(|e| UvdocError::Message(format!("original bgr tensor: {e}")))?
         .to_dtype(DType::F32)
-        .map_err(Into::into)
+        .map_err(UvdocError::Candle)
 }

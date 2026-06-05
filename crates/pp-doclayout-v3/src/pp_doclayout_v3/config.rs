@@ -61,10 +61,10 @@ fn default_true() -> bool {
 }
 
 impl PpDocLayoutV3Config {
-    pub fn from_dir(model_dir: &std::path::Path) -> anyhow::Result<Self> {
+    pub fn from_dir(model_dir: &std::path::Path) -> crate::Result<Self> {
         let path = model_dir.join("config.json");
-        let data = std::fs::read_to_string(&path)?;
-        Ok(serde_json::from_str(&data)?)
+        let data = std::fs::read_to_string(&path).map_err(crate::LayoutError::Io)?;
+        serde_json::from_str(&data).map_err(crate::LayoutError::Json)
     }
 
     pub fn num_labels(&self) -> usize {

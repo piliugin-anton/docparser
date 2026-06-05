@@ -6,15 +6,14 @@ use std::path::{Path, PathBuf};
 mod error;
 
 pub use error::{LayoutError, Result};
-use anyhow::Context;
 use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
 mod image_processor;
 mod model;
 mod postprocess;
-mod preprocess;
 pub mod pp_doclayout_v3;
+mod preprocess;
 
 pub use image_processor::{LayoutImageProcessor, LayoutPreprocessorConfig};
 pub use preprocess::PreprocessOutput;
@@ -105,10 +104,7 @@ impl LayoutModel {
     }
 
     fn runner(&self) -> Result<std::sync::MutexGuard<'_, Option<model::LayoutRunner>>> {
-        let mut guard = self
-            .runner
-            .lock()
-            .map_err(|_| LayoutError::LockPoisoned)?;
+        let mut guard = self.runner.lock().map_err(|_| LayoutError::LockPoisoned)?;
         if guard.is_none() {
             *guard = Some(model::LayoutRunner::load(
                 &self.model_dir,
@@ -121,9 +117,7 @@ impl LayoutModel {
     fn runner_ref<'a>(
         guard: &'a std::sync::MutexGuard<'_, Option<model::LayoutRunner>>,
     ) -> Result<&'a model::LayoutRunner> {
-        guard
-            .as_ref()
-            .ok_or(LayoutError::RunnerNotLoaded)
+        guard.as_ref().ok_or(LayoutError::RunnerNotLoaded)
     }
 
     pub fn model_dir(&self) -> &Path {
@@ -145,17 +139,15 @@ impl LayoutModel {
     ) -> Result<Vec<LayoutElement>> {
         let t = threshold.unwrap_or(self.config.detection_threshold);
         if (t - self.config.detection_threshold).abs() > f32::EPSILON {
-            return model::LayoutRunner::load(&self.model_dir, t)?
-                .detect(image)
-                .map_err(Into::into);
+            return model::LayoutRunner::load(&self.model_dir, t)?.detect(image);
         }
         let guard = self.runner()?;
-        Self::runner_ref(&guard)?.detect(image).map_err(Into::into)
+        Self::runner_ref(&guard)?.detect(image)
     }
 
     pub fn detect_path(&self, path: impl AsRef<Path>) -> Result<Vec<LayoutElement>> {
         let rgb = image::open(path.as_ref())
-            .with_context(|| format!("open image {}", path.as_ref().display()))?
+            .map_err(LayoutError::Image)?
             .to_rgb8();
         self.detect(&rgb)
     }

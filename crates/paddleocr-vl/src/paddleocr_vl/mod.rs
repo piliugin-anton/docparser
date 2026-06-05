@@ -21,7 +21,7 @@
 
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
-use candle_core::{DType, Device, IndexOp, Result, Tensor, D};
+use candle_core::{D, DType, Device, IndexOp, Result, Tensor};
 use candle_nn::VarBuilder;
 
 pub mod config;
@@ -32,8 +32,8 @@ mod vision;
 pub use config::{Config, TextConfig, VisionConfig};
 use text::TextModel;
 pub use text::{
-    compute_mrope_position_ids, compute_mrope_position_ids_multi, compute_mrope_position_ids_video,
-    ImageGrid, VideoGrid,
+    ImageGrid, VideoGrid, compute_mrope_position_ids, compute_mrope_position_ids_multi,
+    compute_mrope_position_ids_video,
 };
 use vision::VisionModel;
 

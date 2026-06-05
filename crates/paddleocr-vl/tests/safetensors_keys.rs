@@ -20,7 +20,10 @@ fn safetensor_keys_match_expected_prefixes_when_present() {
     let model_dir = vlm_dir();
     let weights = model_dir.join("model.safetensors");
     if !weights.is_file() {
-        eprintln!("skip: {} not found (run docparser-download)", weights.display());
+        eprintln!(
+            "skip: {} not found (run docparser-download)",
+            weights.display()
+        );
         return;
     }
 

@@ -1,10 +1,10 @@
 //! PP-DocLayoutV3 full model forward (inference).
 
-use candle_core::{Device, DType, Result, Tensor, D};
+use candle_core::{D, DType, Device, Result, Tensor};
 use candle_nn::{Linear, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;
-use super::decoder::{inverse_sigmoid, Decoder};
+use super::decoder::{Decoder, inverse_sigmoid};
 use super::encoder::{ConvEncoder, DecoderInputProj, EncoderInputProj, HybridEncoder};
 use super::global_pointer::GlobalPointer;
 use super::nn::{LayerNorm, MlpPredictionHead};
@@ -47,7 +47,11 @@ impl PpDocLayoutV3Model {
         }
         Ok(Self {
             backbone: ConvEncoder::new(cfg, vb.pp("backbone"))?,
-            encoder_input_proj: EncoderInputProj::new(cfg, &channel_sizes, vb.pp("encoder_input_proj"))?,
+            encoder_input_proj: EncoderInputProj::new(
+                cfg,
+                &channel_sizes,
+                vb.pp("encoder_input_proj"),
+            )?,
             encoder: HybridEncoder::new(cfg, vb.pp("encoder"))?,
             decoder_input_proj: DecoderInputProj::new(cfg, vb.pp("decoder_input_proj"))?,
             decoder: Decoder::new(cfg, vb.pp("decoder"))?,
@@ -55,8 +59,18 @@ impl PpDocLayoutV3Model {
                 candle_nn::linear(cfg.d_model, cfg.d_model, vb.pp("enc_output.0"))?,
                 LayerNorm::new(cfg.d_model, cfg.layer_norm_eps, vb.pp("enc_output.1"))?,
             ),
-            enc_score_head: candle_nn::linear(cfg.d_model, cfg.num_labels(), vb.pp("enc_score_head"))?,
-            enc_bbox_head: MlpPredictionHead::new(cfg.d_model, cfg.d_model, 4, 3, vb.pp("enc_bbox_head"))?,
+            enc_score_head: candle_nn::linear(
+                cfg.d_model,
+                cfg.num_labels(),
+                vb.pp("enc_score_head"),
+            )?,
+            enc_bbox_head: MlpPredictionHead::new(
+                cfg.d_model,
+                cfg.d_model,
+                4,
+                3,
+                vb.pp("enc_bbox_head"),
+            )?,
             decoder_order_head: order_heads,
             decoder_global_pointer: GlobalPointer::new(cfg, vb.pp("decoder_global_pointer"))?,
             decoder_norm: LayerNorm::new(cfg.d_model, cfg.layer_norm_eps, vb.pp("decoder_norm"))?,
@@ -89,7 +103,9 @@ impl PpDocLayoutV3Model {
         let len_src = sources.len();
         let num_levels = 3usize;
         if num_levels > len_src {
-            let last = enc_out.feature_maps.last().unwrap();
+            let Some(last) = enc_out.feature_maps.last() else {
+                candle_core::bail!("encoder returned no feature maps");
+            };
             sources.push(self.decoder_input_proj.forward(last, len_src)?);
             for i in len_src + 1..num_levels {
                 sources.push(self.decoder_input_proj.forward(last, i)?);
@@ -104,10 +120,16 @@ impl PpDocLayoutV3Model {
             flat.push(src.flatten(2, 3)?.transpose(1, 2)?);
         }
         let source_flatten = Tensor::cat(&flat, 1)?;
-        let (anchors, valid_mask) =
-            generate_anchors(&spatial_shapes, source_flatten.device(), source_flatten.dtype())?;
+        let (anchors, valid_mask) = generate_anchors(
+            &spatial_shapes,
+            source_flatten.device(),
+            source_flatten.dtype(),
+        )?;
         let memory = source_flatten.broadcast_mul(&valid_mask.to_dtype(source_flatten.dtype())?)?;
-        let output_memory = self.enc_output.1.forward(&self.enc_output.0.forward(&memory)?)?;
+        let output_memory = self
+            .enc_output
+            .1
+            .forward(&self.enc_output.0.forward(&memory)?)?;
         let enc_outputs_class = self.enc_score_head.forward(&output_memory)?;
         let enc_outputs_coord = (&self.enc_bbox_head.forward(&output_memory)? + &anchors)?;
 
@@ -141,13 +163,22 @@ impl PpDocLayoutV3Model {
         )?;
 
         let n_layers = dec.intermediate_logits.dims()[1];
-        let logits = dec.intermediate_logits.narrow(1, n_layers - 1, 1)?.squeeze(1)?;
+        let logits = dec
+            .intermediate_logits
+            .narrow(1, n_layers - 1, 1)?
+            .squeeze(1)?;
         let pred_boxes = dec
             .intermediate_reference_points
             .narrow(1, n_layers - 1, 1)?
             .squeeze(1)?;
-        let order_logits = dec.decoder_out_order_logits.narrow(1, n_layers - 1, 1)?.squeeze(1)?;
-        let out_masks = dec.decoder_out_masks.narrow(1, n_layers - 1, 1)?.squeeze(1)?;
+        let order_logits = dec
+            .decoder_out_order_logits
+            .narrow(1, n_layers - 1, 1)?
+            .squeeze(1)?;
+        let out_masks = dec
+            .decoder_out_masks
+            .narrow(1, n_layers - 1, 1)?
+            .squeeze(1)?;
 
         Ok(ModelOutputs {
             logits,
@@ -198,8 +229,12 @@ fn mask_logits_to_boxes(mask_query_embed: &Tensor, mask_feat: &Tensor) -> Result
     let (batch, _mask_dim, _) = mask_query_embed.dims3()?;
     let (_b, _np, mask_h, mask_w) = mask_feat.dims4()?;
     let mf = mask_feat.flatten(2, 3)?;
-    let masks = docparser_candle_utils::matmul(mask_query_embed, &mf)?
-        .reshape((batch, (), mask_h, mask_w))?;
+    let masks = docparser_candle_utils::matmul(mask_query_embed, &mf)?.reshape((
+        batch,
+        (),
+        mask_h,
+        mask_w,
+    ))?;
     let masks = masks.gt(0.0)?.to_dtype(mask_query_embed.dtype())?;
     mask_to_box_coordinate(&masks)
 }
@@ -238,4 +273,3 @@ fn mask_to_box_coordinate(mask: &Tensor) -> Result<Tensor> {
     }
     Tensor::from_vec(out, (batch, num_q, 4), mask.device())
 }
-

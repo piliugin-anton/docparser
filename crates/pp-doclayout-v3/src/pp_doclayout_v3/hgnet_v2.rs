@@ -4,7 +4,7 @@ use candle_core::{Result, Tensor};
 use candle_nn::VarBuilder;
 
 use super::config::HgNetV2Config;
-use super::nn::{pad_chw, max_pool2d_ceil, ConvBnAct, FrozenConvBnAct};
+use super::nn::{ConvBnAct, FrozenConvBnAct, max_pool2d_ceil, pad_chw};
 
 pub struct HgNetV2Backbone {
     embedder: HgNetV2Embeddings,
@@ -79,11 +79,61 @@ impl HgNetV2Embeddings {
         let s = &cfg.stem_channels;
         let st = &cfg.stem_strides;
         Ok(Self {
-            stem1: ConvBlock::new(cfg, s[0], s[1], 3, st[0], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem1"))?,
-            stem2a: ConvBlock::new(cfg, s[1], s[1] / 2, 2, st[1], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem2a"))?,
-            stem2b: ConvBlock::new(cfg, s[1] / 2, s[1], 2, st[2], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem2b"))?,
-            stem3: ConvBlock::new(cfg, s[1] * 2, s[1], 3, st[3], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem3"))?,
-            stem4: ConvBlock::new(cfg, s[1], s[2], 1, st[4], 1, Some(&cfg.hidden_act), frozen, vb.pp("stem4"))?,
+            stem1: ConvBlock::new(
+                cfg,
+                s[0],
+                s[1],
+                3,
+                st[0],
+                1,
+                Some(&cfg.hidden_act),
+                frozen,
+                vb.pp("stem1"),
+            )?,
+            stem2a: ConvBlock::new(
+                cfg,
+                s[1],
+                s[1] / 2,
+                2,
+                st[1],
+                1,
+                Some(&cfg.hidden_act),
+                frozen,
+                vb.pp("stem2a"),
+            )?,
+            stem2b: ConvBlock::new(
+                cfg,
+                s[1] / 2,
+                s[1],
+                2,
+                st[2],
+                1,
+                Some(&cfg.hidden_act),
+                frozen,
+                vb.pp("stem2b"),
+            )?,
+            stem3: ConvBlock::new(
+                cfg,
+                s[1] * 2,
+                s[1],
+                3,
+                st[3],
+                1,
+                Some(&cfg.hidden_act),
+                frozen,
+                vb.pp("stem3"),
+            )?,
+            stem4: ConvBlock::new(
+                cfg,
+                s[1],
+                s[2],
+                1,
+                st[4],
+                1,
+                Some(&cfg.hidden_act),
+                frozen,
+                vb.pp("stem4"),
+            )?,
         })
     }
 
@@ -110,10 +160,18 @@ impl HgNetV2Encoder {
         let n = cfg.stage_in_channels.len();
         let mut stages = Vec::with_capacity(n);
         for i in 0..n {
-            stages.push(HgNetV2Stage::new(cfg, i, frozen, vb.pp(format!("stages.{i}")))?);
+            stages.push(HgNetV2Stage::new(
+                cfg,
+                i,
+                frozen,
+                vb.pp(format!("stages.{i}")),
+            )?);
         }
         let out_indices: Vec<usize> = (0..n).map(|i| i + 1).collect();
-        Ok(Self { stages, out_indices })
+        Ok(Self {
+            stages,
+            out_indices,
+        })
     }
 
     fn forward_features(&self, x: &Tensor) -> Result<Vec<Tensor>> {
@@ -123,7 +181,11 @@ impl HgNetV2Encoder {
             hidden = stage.forward(&hidden)?;
             states.push(hidden.clone());
         }
-        Ok(self.out_indices.iter().map(|&i| states[i].clone()).collect())
+        Ok(self
+            .out_indices
+            .iter()
+            .map(|&i| states[i].clone())
+            .collect())
     }
 }
 
@@ -158,7 +220,11 @@ impl HgNetV2Stage {
         let num_blocks = cfg.stage_num_blocks[stage_index];
         let mut blocks = Vec::with_capacity(num_blocks);
         for i in 0..num_blocks {
-            let in_c = if i == 0 { in_ch } else { cfg.stage_out_channels[stage_index] };
+            let in_c = if i == 0 {
+                in_ch
+            } else {
+                cfg.stage_out_channels[stage_index]
+            };
             blocks.push(HgNetV2BasicLayer::new(
                 cfg,
                 in_c,
@@ -204,10 +270,37 @@ struct LightBlock {
 }
 
 impl LightBlock {
-    fn new(cfg: &HgNetV2Config, in_ch: usize, out_ch: usize, kernel: usize, frozen: bool, vb: VarBuilder) -> Result<Self> {
+    fn new(
+        cfg: &HgNetV2Config,
+        in_ch: usize,
+        out_ch: usize,
+        kernel: usize,
+        frozen: bool,
+        vb: VarBuilder,
+    ) -> Result<Self> {
         Ok(Self {
-            conv1: ConvBlock::new(cfg, in_ch, out_ch, 1, 1, 1, Some("identity"), frozen, vb.pp("conv1"))?,
-            conv2: ConvBlock::new(cfg, out_ch, out_ch, kernel, 1, out_ch, None, frozen, vb.pp("conv2"))?,
+            conv1: ConvBlock::new(
+                cfg,
+                in_ch,
+                out_ch,
+                1,
+                1,
+                1,
+                Some("identity"),
+                frozen,
+                vb.pp("conv1"),
+            )?,
+            conv2: ConvBlock::new(
+                cfg,
+                out_ch,
+                out_ch,
+                kernel,
+                1,
+                out_ch,
+                None,
+                frozen,
+                vb.pp("conv2"),
+            )?,
         })
     }
 
@@ -234,10 +327,25 @@ impl HgNetV2BasicLayer {
         for i in 0..layer_num {
             let in_c = if i == 0 { in_channels } else { middle_channels };
             let block = if light_block {
-                BasicConv::Light(LightBlock::new(cfg, in_c, middle_channels, kernel_size, frozen, vb.pp(format!("layers.{i}")))?)
+                BasicConv::Light(LightBlock::new(
+                    cfg,
+                    in_c,
+                    middle_channels,
+                    kernel_size,
+                    frozen,
+                    vb.pp(format!("layers.{i}")),
+                )?)
             } else {
                 BasicConv::Standard(ConvBlock::new(
-                    cfg, in_c, middle_channels, kernel_size, 1, 1, Some(&cfg.hidden_act), frozen, vb.pp(format!("layers.{i}")),
+                    cfg,
+                    in_c,
+                    middle_channels,
+                    kernel_size,
+                    1,
+                    1,
+                    Some(&cfg.hidden_act),
+                    frozen,
+                    vb.pp(format!("layers.{i}")),
                 )?)
             };
             layers.push(block);
@@ -246,8 +354,28 @@ impl HgNetV2BasicLayer {
         Ok(Self {
             layers,
             aggregation: (
-                ConvBlock::new(cfg, total, out_channels / 2, 1, 1, 1, Some(&cfg.hidden_act), frozen, vb.pp("aggregation.0"))?,
-                ConvBlock::new(cfg, out_channels / 2, out_channels, 1, 1, 1, Some(&cfg.hidden_act), frozen, vb.pp("aggregation.1"))?,
+                ConvBlock::new(
+                    cfg,
+                    total,
+                    out_channels / 2,
+                    1,
+                    1,
+                    1,
+                    Some(&cfg.hidden_act),
+                    frozen,
+                    vb.pp("aggregation.0"),
+                )?,
+                ConvBlock::new(
+                    cfg,
+                    out_channels / 2,
+                    out_channels,
+                    1,
+                    1,
+                    1,
+                    Some(&cfg.hidden_act),
+                    frozen,
+                    vb.pp("aggregation.1"),
+                )?,
             ),
             residual,
         })
@@ -257,9 +385,12 @@ impl HgNetV2BasicLayer {
         let identity = x.clone();
         let mut outputs = vec![x.clone()];
         for layer in &self.layers {
+            let Some(prev) = outputs.last() else {
+                candle_core::bail!("basic block outputs empty");
+            };
             let h = match layer {
-                BasicConv::Standard(c) => c.forward(outputs.last().unwrap())?,
-                BasicConv::Light(c) => c.forward(outputs.last().unwrap())?,
+                BasicConv::Standard(c) => c.forward(prev)?,
+                BasicConv::Light(c) => c.forward(prev)?,
             };
             outputs.push(h.clone());
         }

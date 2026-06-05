@@ -1,12 +1,11 @@
 //! Image and prompt preprocessing aligned with HuggingFace PaddleOCR-VL.
 
-use anyhow::Result;
 use candle_core::{DType, Device, Tensor};
 use image::RgbImage;
 use tokenizers::Tokenizer;
 
 use crate::paddleocr_vl::Config;
-use crate::VlmTask;
+use crate::{Result, VlmError, VlmTask};
 
 const PATCH_SIZE: usize = 14;
 const SPATIAL_MERGE: usize = 2;
@@ -32,7 +31,9 @@ pub fn smart_resize(height: usize, width: usize) -> Result<(usize, usize)> {
     } else {
         w as f64 / h as f64
     };
-    anyhow::ensure!(aspect <= 200.0, "aspect ratio {aspect} exceeds 200");
+    if aspect > 200.0 {
+        return Err(VlmError::InvalidAspectRatio { aspect });
+    }
 
     let mut h_bar = ((h as f64 / FACTOR as f64).round() as usize) * FACTOR;
     let mut w_bar = ((w as f64 / FACTOR as f64).round() as usize) * FACTOR;
@@ -107,13 +108,14 @@ pub fn build_input_ids(
     text = text.replacen(IMAGE_PLACEHOLDER, &expanded, 1);
     let enc = tokenizer
         .encode(text.as_str(), false)
-        .map_err(|e| anyhow::anyhow!("tokenize prompt: {e}"))?;
+        .map_err(|e| VlmError::Tokenizer(format!("tokenize prompt: {e}")))?;
     Ok(Tensor::new(enc.get_ids(), device)?.unsqueeze(0)?)
 }
 
 pub fn load_tokenizer(model_dir: &std::path::Path) -> Result<Tokenizer> {
     let path = model_dir.join("tokenizer.json");
-    Tokenizer::from_file(&path).map_err(|e| anyhow::anyhow!("load tokenizer {}: {e}", path.display()))
+    Tokenizer::from_file(&path)
+        .map_err(|e| VlmError::Tokenizer(format!("load tokenizer {}: {e}", path.display())))
 }
 
 pub fn eos_token_id(tokenizer: &Tokenizer) -> u32 {

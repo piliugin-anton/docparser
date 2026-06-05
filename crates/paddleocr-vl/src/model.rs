@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
-use anyhow::Result;
 use candle_core::{DType, Device};
 use image::RgbImage;
+
 use crate::paddleocr_vl::PaddleOCRVLModel;
 use crate::preprocess::eos_token_id;
 use crate::processor::VlmProcessor;
-use crate::VlmTask;
+use crate::{Result, VlmError, VlmTask};
 
 pub struct VlmRunner {
     model: PaddleOCRVLModel,
@@ -78,7 +78,7 @@ impl VlmRunner {
             .processor
             .tokenizer
             .decode(&trimmed, true)
-            .map_err(|e| anyhow::anyhow!("decode: {e}"))?;
+            .map_err(|e| VlmError::Tokenizer(format!("decode: {e}")))?;
         Ok(text.trim().to_string())
     }
 

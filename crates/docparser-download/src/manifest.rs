@@ -114,8 +114,5 @@ pub const FIXTURES: &[FixtureDownload] = &[
 ];
 
 pub fn expected_size(repo_files: &[(&str, u64)], name: &str) -> Option<u64> {
-    repo_files
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, s)| *s)
+    repo_files.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
 }

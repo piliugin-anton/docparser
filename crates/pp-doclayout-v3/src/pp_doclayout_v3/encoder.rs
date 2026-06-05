@@ -6,8 +6,8 @@ use candle_nn::{Conv2d, Conv2dConfig, Module, VarBuilder};
 use super::config::PpDocLayoutV3Config;
 use super::hgnet_v2::HgNetV2Backbone;
 use super::nn::{
-    activation, linear_b, upsample_bilinear, upsample_nearest_2x, BatchNorm2d, ConvLayer,
-    ConvNormLayer, LayerNorm, Mlp,
+    BatchNorm2d, ConvLayer, ConvNormLayer, LayerNorm, Mlp, activation, linear_b, upsample_bilinear,
+    upsample_nearest_2x,
 };
 
 pub struct ConvEncoder {
@@ -21,12 +21,19 @@ impl ConvEncoder {
         Ok(Self { backbone })
     }
 
-    pub fn forward(&self, pixel_values: &Tensor, _pixel_mask: &Tensor) -> Result<(Tensor, Vec<(Tensor, Tensor)>)> {
+    pub fn forward(
+        &self,
+        pixel_values: &Tensor,
+        _pixel_mask: &Tensor,
+    ) -> Result<(Tensor, Vec<(Tensor, Tensor)>)> {
         let maps = self.backbone.forward(pixel_values)?;
         let x4 = maps[0].clone();
         let mut out = Vec::new();
         for m in maps {
-            out.push((m, Tensor::ones((1,), pixel_values.dtype(), pixel_values.device())?));
+            out.push((
+                m,
+                Tensor::ones((1,), pixel_values.dtype(), pixel_values.device())?,
+            ));
         }
         Ok((x4, out))
     }
@@ -47,7 +54,11 @@ impl EncoderInputProj {
                 Conv2dConfig::default(),
                 vb.pp(format!("{i}.0")),
             )?;
-            let norm = BatchNorm2d::load(cfg.encoder_hidden_dim, cfg.batch_norm_eps, vb.pp(format!("{i}.1")))?;
+            let norm = BatchNorm2d::load(
+                cfg.encoder_hidden_dim,
+                cfg.batch_norm_eps,
+                vb.pp(format!("{i}.1")),
+            )?;
             layers.push((conv, norm));
         }
         Ok(Self { layers })
@@ -135,7 +146,11 @@ impl HybridEncoder {
         })
     }
 
-    pub fn forward(&self, feature_maps: &mut [Tensor], x4_feat: &Tensor) -> Result<HybridEncoderOutput> {
+    pub fn forward(
+        &self,
+        feature_maps: &mut [Tensor],
+        x4_feat: &Tensor,
+    ) -> Result<HybridEncoderOutput> {
         if !self.aifi.is_empty() {
             for (i, &enc_ind) in self.encode_proj_layers.iter().enumerate() {
                 feature_maps[enc_ind] = self.aifi[i].forward(&feature_maps[enc_ind])?;
@@ -145,9 +160,15 @@ impl HybridEncoder {
         let mut fpn_maps = vec![feature_maps[n_fpn].clone()];
         for idx in 0..n_fpn {
             let backbone = &feature_maps[n_fpn - idx - 1];
-            let mut top = fpn_maps.last().unwrap().clone();
+            let Some(last) = fpn_maps.last() else {
+                candle_core::bail!("fpn_maps empty during FPN forward");
+            };
+            let mut top = last.clone();
             top = self.lateral_convs[idx].forward(&top)?;
-            *fpn_maps.last_mut().unwrap() = top.clone();
+            let Some(last_mut) = fpn_maps.last_mut() else {
+                candle_core::bail!("fpn_maps empty during FPN forward");
+            };
+            *last_mut = top.clone();
             top = upsample_nearest_2x(&top)?;
             let fused = Tensor::cat(&[&top, backbone], 1)?;
             fpn_maps.push(self.fpn_blocks[idx].forward(&fused)?);
@@ -155,7 +176,9 @@ impl HybridEncoder {
         fpn_maps.reverse();
         let mut pan_maps = vec![fpn_maps[0].clone()];
         for idx in 0..n_fpn {
-            let top = pan_maps.last().unwrap();
+            let Some(top) = pan_maps.last() else {
+                candle_core::bail!("pan_maps empty during PAN forward");
+            };
             let fpn = &fpn_maps[idx + 1];
             let down = self.downsample_convs[idx].forward(top)?;
             let fused = Tensor::cat(&[&down, fpn], 1)?;
@@ -183,8 +206,22 @@ impl EncoderMaskOutput {
     fn new(cfg: &PpDocLayoutV3Config, vb: VarBuilder) -> Result<Self> {
         let ch = cfg.mask_feature_channels[1];
         Ok(Self {
-            base_conv: ConvLayer::new(ch, ch, 3, 1, "silu", cfg.batch_norm_eps, vb.pp("base_conv"))?,
-            conv: candle_nn::conv2d(ch, cfg.num_prototypes(), 1, Default::default(), vb.pp("conv"))?,
+            base_conv: ConvLayer::new(
+                ch,
+                ch,
+                3,
+                1,
+                "silu",
+                cfg.batch_norm_eps,
+                vb.pp("base_conv"),
+            )?,
+            conv: candle_nn::conv2d(
+                ch,
+                cfg.num_prototypes(),
+                1,
+                Default::default(),
+                vb.pp("conv"),
+            )?,
         })
     }
 
@@ -233,7 +270,11 @@ impl MaskFeatFpn {
     }
 
     fn forward(&self, inputs: &[Tensor]) -> Result<Tensor> {
-        let x: Vec<Tensor> = self.reorder_index.iter().map(|&i| inputs[i].clone()).collect();
+        let x: Vec<Tensor> = self
+            .reorder_index
+            .iter()
+            .map(|&i| inputs[i].clone())
+            .collect();
         let mut output = self.scale_heads[0].forward(&x[0])?;
         for i in 1..3 {
             let h = output.dims()[2];
@@ -256,7 +297,13 @@ enum LayerKind {
 }
 
 impl ScaleHead {
-    fn new(in_ch: usize, feat_ch: usize, fpn_stride: usize, base_stride: usize, vb: VarBuilder) -> Result<Self> {
+    fn new(
+        in_ch: usize,
+        feat_ch: usize,
+        fpn_stride: usize,
+        base_stride: usize,
+        vb: VarBuilder,
+    ) -> Result<Self> {
         let head_length = (fpn_stride.ilog2() as i32 - base_stride.ilog2() as i32).max(0) as usize;
         let head_length = head_length.max(1);
         let mut layers = Vec::new();
@@ -311,17 +358,38 @@ impl CspRepLayer {
         }
         let conv3 = if hidden != out_ch {
             Some(ConvNormLayer::new(
-                cfg, hidden, out_ch, 1, 1, None, Some(&cfg.activation_function), vb.pp("conv3"),
+                cfg,
+                hidden,
+                out_ch,
+                1,
+                1,
+                None,
+                Some(&cfg.activation_function),
+                vb.pp("conv3"),
             )?)
         } else {
             None
         };
         Ok(Self {
             conv1: ConvNormLayer::new(
-                cfg, in_ch, hidden, 1, 1, None, Some(&cfg.activation_function), vb.pp("conv1"),
+                cfg,
+                in_ch,
+                hidden,
+                1,
+                1,
+                None,
+                Some(&cfg.activation_function),
+                vb.pp("conv1"),
             )?,
             conv2: ConvNormLayer::new(
-                cfg, in_ch, hidden, 1, 1, None, Some(&cfg.activation_function), vb.pp("conv2"),
+                cfg,
+                in_ch,
+                hidden,
+                1,
+                1,
+                None,
+                Some(&cfg.activation_function),
+                vb.pp("conv2"),
             )?,
             bottlenecks,
             conv3,
@@ -354,8 +422,26 @@ impl RepVggBlock {
         let hidden = (cfg.encoder_hidden_dim as f64 * cfg.hidden_expansion) as usize;
         Ok(Self {
             // Inner convs use Identity activation; silu is applied once on the sum (HF RepVggBlock).
-            conv1: ConvNormLayer::new(cfg, hidden, hidden, 3, 1, Some(1), Some("identity"), vb.pp("conv1"))?,
-            conv2: ConvNormLayer::new(cfg, hidden, hidden, 1, 1, Some(0), Some("identity"), vb.pp("conv2"))?,
+            conv1: ConvNormLayer::new(
+                cfg,
+                hidden,
+                hidden,
+                3,
+                1,
+                Some(1),
+                Some("identity"),
+                vb.pp("conv1"),
+            )?,
+            conv2: ConvNormLayer::new(
+                cfg,
+                hidden,
+                hidden,
+                1,
+                1,
+                Some(0),
+                Some("identity"),
+                vb.pp("conv2"),
+            )?,
             act: cfg.activation_function.clone(),
         })
     }
@@ -379,7 +465,10 @@ impl AifiLayer {
             layers.push(EncoderLayer::new(cfg, vb.pp(format!("layers.{i}")))?);
         }
         Ok(Self {
-            pos_embed: SinePositionEmbedding::new(cfg.encoder_hidden_dim, cfg.positional_encoding_temperature),
+            pos_embed: SinePositionEmbedding::new(
+                cfg.encoder_hidden_dim,
+                cfg.positional_encoding_temperature,
+            ),
             layers,
             hidden_dim: cfg.encoder_hidden_dim,
         })
@@ -409,7 +498,13 @@ impl SinePositionEmbedding {
         }
     }
 
-    fn build(&self, height: usize, width: usize, device: &candle_core::Device, dtype: candle_core::DType) -> Result<Tensor> {
+    fn build(
+        &self,
+        height: usize,
+        width: usize,
+        device: &candle_core::Device,
+        dtype: candle_core::DType,
+    ) -> Result<Tensor> {
         let pos_dim = self.embed_dim / 4;
         let mut omega = Vec::with_capacity(pos_dim);
         for i in 0..pos_dim {
@@ -447,7 +542,12 @@ impl EncoderLayer {
         Ok(Self {
             self_attn: SelfAttention::new(h, cfg.encoder_attention_heads, vb.pp("self_attn"))?,
             self_attn_ln: LayerNorm::new(h, cfg.layer_norm_eps, vb.pp("self_attn_layer_norm"))?,
-            mlp: Mlp::new(h, cfg.encoder_ffn_dim, &cfg.encoder_activation_function, vb.clone())?,
+            mlp: Mlp::new(
+                h,
+                cfg.encoder_ffn_dim,
+                &cfg.encoder_activation_function,
+                vb.clone(),
+            )?,
             final_ln: LayerNorm::new(h, cfg.layer_norm_eps, vb.pp("final_layer_norm"))?,
             normalize_before: cfg.normalize_before,
         })
@@ -507,11 +607,25 @@ impl SelfAttention {
             Some(p) => (hs + p)?,
             None => hs.clone(),
         };
-        let q = self.q.forward(&q_in)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
-        let k = self.k.forward(&q_in)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
-        let v = self.v.forward(hs)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
+        let q = self
+            .q
+            .forward(&q_in)?
+            .reshape((b, s, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
+        let k = self
+            .k
+            .forward(&q_in)?
+            .reshape((b, s, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
+        let v = self
+            .v
+            .forward(hs)?
+            .reshape((b, s, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
         let scale = (self.head_dim as f64).powf(-0.5);
-        let attn = candle_nn::ops::softmax_last_dim(&((docparser_candle_utils::matmul_transpose(&q, &k, 2, 3)? * scale)?))?;
+        let attn = candle_nn::ops::softmax_last_dim(
+            &((docparser_candle_utils::matmul_transpose(&q, &k, 2, 3)? * scale)?),
+        )?;
         let out = docparser_candle_utils::matmul_contig_rhs(&attn, &v)?
             .transpose(1, 2)?
             .reshape((b, s, h))?;
@@ -532,14 +646,28 @@ impl DecoderInputProj {
             } else {
                 cfg.d_model
             };
-            let kernel = if i >= cfg.decoder_in_channels.len() { 3 } else { 1 };
-            let stride = if i >= cfg.decoder_in_channels.len() { 2 } else { 1 };
+            let kernel = if i >= cfg.decoder_in_channels.len() {
+                3
+            } else {
+                1
+            };
+            let stride = if i >= cfg.decoder_in_channels.len() {
+                2
+            } else {
+                1
+            };
             let cfg_conv = Conv2dConfig {
                 stride,
                 padding: kernel / 2,
                 ..Default::default()
             };
-            let conv = candle_nn::conv2d_no_bias(in_ch, cfg.d_model, kernel, cfg_conv, vb.pp(format!("{i}.0")))?;
+            let conv = candle_nn::conv2d_no_bias(
+                in_ch,
+                cfg.d_model,
+                kernel,
+                cfg_conv,
+                vb.pp(format!("{i}.0")),
+            )?;
             let norm = BatchNorm2d::load(cfg.d_model, cfg.batch_norm_eps, vb.pp(format!("{i}.1")))?;
             layers.push((conv, norm));
         }

@@ -18,14 +18,12 @@ pub enum VlmError {
     LockPoisoned,
     #[error("runner missing after initialization")]
     RunnerNotLoaded,
+    #[error("aspect ratio {aspect} exceeds maximum 200")]
+    InvalidAspectRatio { aspect: f64 },
+    #[error("tokenizer error: {0}")]
+    Tokenizer(String),
     #[error("{0}")]
     Message(String),
-}
-
-impl From<anyhow::Error> for VlmError {
-    fn from(err: anyhow::Error) -> Self {
-        Self::Message(err.to_string())
-    }
 }
 
 pub type Result<T> = std::result::Result<T, VlmError>;

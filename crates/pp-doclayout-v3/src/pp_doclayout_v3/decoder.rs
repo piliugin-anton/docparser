@@ -1,12 +1,12 @@
 //! PP-DocLayoutV3 transformer decoder.
 
 use candle_core::{Result, Tensor};
-use candle_nn::{ops::sigmoid, Linear, Module, VarBuilder};
+use candle_nn::{Linear, Module, VarBuilder, ops::sigmoid};
 
 use super::config::PpDocLayoutV3Config;
 use super::deformable::MultiscaleDeformableAttention;
 use super::global_pointer::GlobalPointer;
-use super::nn::{linear_b, LayerNorm, Mlp, MlpPredictionHead};
+use super::nn::{LayerNorm, Mlp, MlpPredictionHead, linear_b};
 
 pub struct DecoderOutput {
     pub intermediate_logits: Tensor,
@@ -28,12 +28,18 @@ impl Decoder {
         }
         Ok(Self {
             layers,
-            query_pos_head: MlpPredictionHead::new(4, 2 * cfg.d_model, cfg.d_model, 2, vb.pp("query_pos_head"))?,
+            query_pos_head: MlpPredictionHead::new(
+                4,
+                2 * cfg.d_model,
+                cfg.d_model,
+                2,
+                vb.pp("query_pos_head"),
+            )?,
         })
     }
 
     // DETR-style decoder step mirrors upstream API (embeds, refs, heads, mask feat).
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // signature matches upstream DETR decoder forward
     pub fn forward(
         &self,
         inputs_embeds: &Tensor,
@@ -83,7 +89,11 @@ impl Decoder {
 
             inter_logits.push(class_embed.forward(&out_query)?);
 
-            let valid = out_query.narrow(1, out_query.dims()[1].saturating_sub(num_queries), num_queries)?;
+            let valid = out_query.narrow(
+                1,
+                out_query.dims()[1].saturating_sub(num_queries),
+                num_queries,
+            )?;
             let order_in = order_heads[idx].forward(&valid)?;
             order_logits_list.push(global_pointer.forward(&order_in)?);
         }
@@ -110,7 +120,11 @@ impl DecoderLayer {
     fn new(cfg: &PpDocLayoutV3Config, vb: VarBuilder) -> Result<Self> {
         let h = cfg.d_model;
         Ok(Self {
-            self_attn: DecoderSelfAttention::new(h, cfg.decoder_attention_heads, vb.pp("self_attn"))?,
+            self_attn: DecoderSelfAttention::new(
+                h,
+                cfg.decoder_attention_heads,
+                vb.pp("self_attn"),
+            )?,
             self_attn_ln: LayerNorm::new(h, cfg.layer_norm_eps, vb.pp("self_attn_layer_norm"))?,
             cross_attn: MultiscaleDeformableAttention::new(
                 cfg,
@@ -119,7 +133,12 @@ impl DecoderLayer {
                 vb.pp("encoder_attn"),
             )?,
             cross_attn_ln: LayerNorm::new(h, cfg.layer_norm_eps, vb.pp("encoder_attn_layer_norm"))?,
-            mlp: Mlp::new(h, cfg.decoder_ffn_dim, &cfg.decoder_activation_function, vb.clone())?,
+            mlp: Mlp::new(
+                h,
+                cfg.decoder_ffn_dim,
+                &cfg.decoder_activation_function,
+                vb.clone(),
+            )?,
             final_ln: LayerNorm::new(h, cfg.layer_norm_eps, vb.pp("final_layer_norm"))?,
         })
     }
@@ -137,7 +156,9 @@ impl DecoderLayer {
         h = (&residual + &h)?;
         h = self.self_attn_ln.forward(&h)?;
         let residual = h.clone();
-        h = self.cross_attn.forward(&h, enc, pos, ref_points, spatial_shapes)?;
+        h = self
+            .cross_attn
+            .forward(&h, enc, pos, ref_points, spatial_shapes)?;
         h = (&residual + &h)?;
         h = self.cross_attn_ln.forward(&h)?;
         let residual = h.clone();
@@ -173,11 +194,25 @@ impl DecoderSelfAttention {
             Some(p) => (hs + p)?,
             None => hs.clone(),
         };
-        let q = self.q.forward(&q_in)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
-        let k = self.k.forward(&q_in)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
-        let v = self.v.forward(hs)?.reshape((b, s, self.n_heads, self.head_dim))?.transpose(1, 2)?;
+        let q = self
+            .q
+            .forward(&q_in)?
+            .reshape((b, s, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
+        let k = self
+            .k
+            .forward(&q_in)?
+            .reshape((b, s, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
+        let v = self
+            .v
+            .forward(hs)?
+            .reshape((b, s, self.n_heads, self.head_dim))?
+            .transpose(1, 2)?;
         let scale = (self.head_dim as f64).powf(-0.5);
-        let attn = candle_nn::ops::softmax_last_dim(&((docparser_candle_utils::matmul_transpose(&q, &k, 2, 3)? * scale)?))?;
+        let attn = candle_nn::ops::softmax_last_dim(
+            &((docparser_candle_utils::matmul_transpose(&q, &k, 2, 3)? * scale)?),
+        )?;
         let out = docparser_candle_utils::matmul_contig_rhs(&attn, &v)?
             .transpose(1, 2)?
             .reshape((b, s, h))?;

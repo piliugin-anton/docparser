@@ -11,27 +11,24 @@ mod markdown;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
 use candle_core::Device;
 use image::{DynamicImage, GenericImageView, RgbImage};
-use paddleocr_vl::{should_run_vlm_for_label, task_for_layout_label, VlmModel};
+use paddleocr_vl::{VlmModel, should_run_vlm_for_label, task_for_layout_label};
 use pp_doclayout_v3::LayoutModel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub use block_merge::{CropBlock, IMAGE_LABELS, merge_blocks, non_merge_labels};
+pub use doc_preprocess::{DocPreprocessor, DocPreprocessorConfig, preprocess_document};
 pub use error::{PipelineError, Result};
-pub use block_merge::{
-    merge_blocks, non_merge_labels, CropBlock, IMAGE_LABELS,
-};
-pub use doc_preprocess::{preprocess_document, DocPreprocessor, DocPreprocessorConfig};
 pub use layout_filter::filter_overlap_boxes;
 pub use layout_merge::{
-    apply_layout_merge_bboxes, merge_layout_blocks, merge_layout_blocks_with_mode_fn,
-    merge_mode_for_label, MergeBboxesMode,
+    MergeBboxesMode, apply_layout_merge_bboxes, merge_layout_blocks,
+    merge_layout_blocks_with_mode_fn, merge_mode_for_label,
 };
 pub use layout_nms::layout_nms;
 pub use layout_postprocess::{
-    apply_layout_postprocess, clamp_bbox_to_image, unclip_bbox, LayoutPostprocessConfig,
+    LayoutPostprocessConfig, apply_layout_postprocess, clamp_bbox_to_image, unclip_bbox,
 };
 pub use markdown::{blocks_to_markdown, official_markdown_ignore_labels};
 
@@ -157,8 +154,7 @@ impl DocumentPipeline {
     pub fn from_paths(paths: &ModelPaths, config: PipelineConfig) -> Result<Self> {
         let device = Device::Cpu;
         let vlm = VlmModel::from_dir(&paths.vlm, device)?;
-        let layout =
-            LayoutModel::from_dir_with_threshold(&paths.layout, config.layout_threshold)?;
+        let layout = LayoutModel::from_dir_with_threshold(&paths.layout, config.layout_threshold)?;
         let doc_prep = DocPreprocessor::from_model_dirs(
             Some(&paths.doc_ori),
             Some(&paths.uvdoc),
@@ -183,9 +179,7 @@ impl DocumentPipeline {
     ) -> Result<Self> {
         let vlm_dir = vlm_dir.as_ref();
         let layout_dir = layout_dir.as_ref();
-        let base = vlm_dir
-            .parent()
-            .unwrap_or_else(|| Path::new("models"));
+        let base = vlm_dir.parent().unwrap_or_else(|| Path::new("models"));
         let mut paths = ModelPaths::from_models_dir(base);
         paths.vlm = vlm_dir.to_path_buf();
         paths.layout = layout_dir.to_path_buf();
@@ -323,7 +317,7 @@ impl DocumentPipeline {
     pub fn parse_path(&self, path: impl AsRef<Path>) -> Result<DocumentParseResult> {
         let path = path.as_ref();
         let filename = path.file_name().map(|s| s.to_string_lossy().into_owned());
-        let img = image::open(path).with_context(|| format!("open image {}", path.display()))?;
+        let img = image::open(path).map_err(PipelineError::Image)?;
         self.parse_image(img, filename)
     }
 }

@@ -6,9 +6,9 @@ mod error;
 
 use std::path::Path;
 
-pub use error::{CandleUtilsError, Result};
-use candle_core::{Device, DType, Result as CandleResult, Tensor};
+use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use candle_nn::VarBuilder;
+pub use error::{CandleUtilsError, Result};
 
 fn contig(t: &Tensor) -> CandleResult<Tensor> {
     if t.is_contiguous() {
@@ -24,7 +24,12 @@ pub fn matmul(lhs: &Tensor, rhs: &Tensor) -> CandleResult<Tensor> {
 }
 
 /// `lhs @ transpose(rhs, dim1, dim2)`.
-pub fn matmul_transpose(lhs: &Tensor, rhs: &Tensor, dim1: usize, dim2: usize) -> CandleResult<Tensor> {
+pub fn matmul_transpose(
+    lhs: &Tensor,
+    rhs: &Tensor,
+    dim1: usize,
+    dim2: usize,
+) -> CandleResult<Tensor> {
     matmul(lhs, &rhs.transpose(dim1, dim2)?)
 }
 
@@ -50,15 +55,14 @@ pub fn var_builder_from_safetensors(
     }
     let weights_path = weights.clone();
     // SAFETY: mmap is read-only; weights are not mutated.
-    Ok(unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device) }
-        .map_err(CandleUtilsError::Candle)?)
+    unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device) }
+        .map_err(CandleUtilsError::Candle)
 }
 
 pub fn list_safetensor_keys(model_dir: &Path) -> Result<Vec<String>> {
     let path = model_dir.join("model.safetensors");
-    let bytes = std::fs::read(&path).map_err(|e| {
-        CandleUtilsError::Message(format!("read {}: {e}", path.display()))
-    })?;
+    let bytes = std::fs::read(&path)
+        .map_err(|e| CandleUtilsError::Message(format!("read {}: {e}", path.display())))?;
     let data = SafeTensors::deserialize(&bytes)?;
     let mut keys: Vec<String> = data.names().into_iter().map(str::to_string).collect();
     keys.sort();

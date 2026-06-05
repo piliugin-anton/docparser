@@ -1,6 +1,6 @@
 //! Reading-order global pointer head.
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{D, Result, Tensor};
 use candle_nn::{Linear, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;
@@ -21,15 +21,16 @@ impl GlobalPointer {
 
     pub fn forward(&self, inputs: &Tensor) -> Result<Tensor> {
         let (batch_size, sequence_length, _) = inputs.dims3()?;
-        let qk = self
-            .dense
-            .forward(inputs)?
-            .reshape((batch_size, sequence_length, 2, self.head_size))?;
+        let qk = self.dense.forward(inputs)?.reshape((
+            batch_size,
+            sequence_length,
+            2,
+            self.head_size,
+        ))?;
         let queries = qk.narrow(D::Minus2, 0, 1)?.squeeze(D::Minus2)?;
         let keys = qk.narrow(D::Minus2, 1, 1)?.squeeze(D::Minus2)?;
         let scale = (self.head_size as f64).sqrt();
-        let logits =
-            (&docparser_candle_utils::matmul_transpose(&queries, &keys, 1, 2)? / scale)?;
+        let logits = (&docparser_candle_utils::matmul_transpose(&queries, &keys, 1, 2)? / scale)?;
         let device = logits.device();
         let mut mask_data = vec![0f32; (sequence_length * sequence_length) as usize];
         for i in 0..sequence_length {
@@ -39,12 +40,8 @@ impl GlobalPointer {
                 }
             }
         }
-        let mask = Tensor::from_vec(
-            mask_data,
-            (1, sequence_length, sequence_length),
-            device,
-        )?
-        .to_dtype(logits.dtype())?;
+        let mask = Tensor::from_vec(mask_data, (1, sequence_length, sequence_length), device)?
+            .to_dtype(logits.dtype())?;
         logits.broadcast_add(&mask)
     }
 }

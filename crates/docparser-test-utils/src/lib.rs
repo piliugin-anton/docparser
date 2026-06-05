@@ -39,10 +39,19 @@ pub fn load_golden_rel(rel: &str) -> Value {
 
 /// Element-wise comparison with absolute tolerance (scores, bboxes).
 pub fn assert_slice_near(a: &[f32], b: &[f32], atol: f32) {
-    assert_eq!(a.len(), b.len(), "length mismatch: {} vs {}", a.len(), b.len());
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "length mismatch: {} vs {}",
+        a.len(),
+        b.len()
+    );
     for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
         let diff = (x - y).abs();
-        assert!(diff <= atol, "index {i}: {x} vs {y}, |diff|={diff} > atol {atol}");
+        assert!(
+            diff <= atol,
+            "index {i}: {x} vs {y}, |diff|={diff} > atol {atol}"
+        );
     }
 }
 

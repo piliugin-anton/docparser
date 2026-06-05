@@ -69,6 +69,6 @@ mod tests {
     fn adds_trailing_newline_between_blocks() {
         let blocks = vec![block("text", "line")];
         let md = blocks_to_markdown(&blocks, &[]);
-        assert_eq!(md, "line\n\n");
+        insta::assert_snapshot!(md, @"line\n\n");
     }
 }

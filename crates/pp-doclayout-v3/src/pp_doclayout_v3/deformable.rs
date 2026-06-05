@@ -1,6 +1,6 @@
 //! Multi-scale deformable attention (decoder cross-attention).
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{D, Result, Tensor};
 use candle_nn::{Linear, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;
@@ -18,7 +18,12 @@ pub struct MultiscaleDeformableAttention {
 }
 
 impl MultiscaleDeformableAttention {
-    pub fn new(cfg: &PpDocLayoutV3Config, num_heads: usize, n_points: usize, vb: VarBuilder) -> Result<Self> {
+    pub fn new(
+        cfg: &PpDocLayoutV3Config,
+        num_heads: usize,
+        n_points: usize,
+        vb: VarBuilder,
+    ) -> Result<Self> {
         let d_model = cfg.d_model;
         let n_levels = cfg.num_feature_levels;
         Ok(Self {
@@ -56,35 +61,33 @@ impl MultiscaleDeformableAttention {
         let (batch_size, num_queries, _) = hs.dims3()?;
         let (_b, sequence_length, _) = encoder_hidden_states.dims3()?;
         let value = self.value_proj.forward(encoder_hidden_states)?;
-        let value = value.reshape((batch_size, sequence_length, self.n_heads, self.d_model / self.n_heads))?;
-        let sampling_offsets = self
-            .sampling_offsets
-            .forward(&hs)?
-            .reshape((
-                batch_size,
-                num_queries,
-                self.n_heads,
-                self.n_levels,
-                self.n_points,
-                2,
-            ))?;
-        let attention_weights = self
-            .attention_weights
-            .forward(&hs)?
-            .reshape((
-                batch_size,
-                num_queries,
-                self.n_heads,
-                self.n_levels * self.n_points,
-            ))?;
-        let attention_weights = candle_nn::ops::softmax_last_dim(&attention_weights)?
-            .reshape((
-                batch_size,
-                num_queries,
-                self.n_heads,
-                self.n_levels,
-                self.n_points,
-            ))?;
+        let value = value.reshape((
+            batch_size,
+            sequence_length,
+            self.n_heads,
+            self.d_model / self.n_heads,
+        ))?;
+        let sampling_offsets = self.sampling_offsets.forward(&hs)?.reshape((
+            batch_size,
+            num_queries,
+            self.n_heads,
+            self.n_levels,
+            self.n_points,
+            2,
+        ))?;
+        let attention_weights = self.attention_weights.forward(&hs)?.reshape((
+            batch_size,
+            num_queries,
+            self.n_heads,
+            self.n_levels * self.n_points,
+        ))?;
+        let attention_weights = candle_nn::ops::softmax_last_dim(&attention_weights)?.reshape((
+            batch_size,
+            num_queries,
+            self.n_heads,
+            self.n_levels,
+            self.n_points,
+        ))?;
         let num_coords = reference_points.dims()[reference_points.dims().len() - 1];
         let sampling_locations = if num_coords == 2 {
             let mut norm_flat = Vec::with_capacity(spatial_shapes.len() * 2);
@@ -104,8 +107,12 @@ impl MultiscaleDeformableAttention {
             // reference_points is [B, Q, 1, 4] after decoder unsqueeze(2)
             rp = rp.unsqueeze(3)?.unsqueeze(3)?;
             scale = scale.unsqueeze(3)?.unsqueeze(3)?;
-            let n_pts = Tensor::new(self.n_points as f32, hs.device())?.to_dtype(sampling_offsets.dtype())?;
-            let off = (sampling_offsets.broadcast_div(&n_pts)?.broadcast_mul(&scale)? * 0.5)?;
+            let n_pts = Tensor::new(self.n_points as f32, hs.device())?
+                .to_dtype(sampling_offsets.dtype())?;
+            let off = (sampling_offsets
+                .broadcast_div(&n_pts)?
+                .broadcast_mul(&scale)?
+                * 0.5)?;
             let rp = rp.broadcast_as(off.shape())?;
             (&rp + &off)?
         };

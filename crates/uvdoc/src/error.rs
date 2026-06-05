@@ -12,18 +12,20 @@ pub enum UvdocError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("image error: {0}")]
+    Image(#[from] image::ImageError),
     #[error("runner lock poisoned")]
     LockPoisoned,
     #[error("runner missing after initialization")]
     RunnerNotLoaded,
+    #[error("config field `{field}`: expected unsigned integer, got {value}")]
+    InvalidConfigField { field: String, value: String },
+    #[error("resnet_configs entry must have at least 4 fields")]
+    InvalidResnetConfig,
+    #[error("expected 3-channel output, got {channels}")]
+    InvalidChannelCount { channels: usize },
     #[error("{0}")]
     Message(String),
-}
-
-impl From<anyhow::Error> for UvdocError {
-    fn from(err: anyhow::Error) -> Self {
-        Self::Message(err.to_string())
-    }
 }
 
 pub type Result<T> = std::result::Result<T, UvdocError>;

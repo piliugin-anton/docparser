@@ -2,12 +2,14 @@
 
 use std::collections::HashMap;
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{D, Result, Tensor};
 use candle_nn::ops::sigmoid;
 
-use crate::pp_doclayout_v3::ops::{class_and_query_index, gather_dim, get_order_seqs, topk_last_dim};
-use crate::pp_doclayout_v3::ModelOutputs;
 use crate::LayoutElement;
+use crate::pp_doclayout_v3::ModelOutputs;
+use crate::pp_doclayout_v3::ops::{
+    class_and_query_index, gather_dim, get_order_seqs, topk_last_dim,
+};
 
 pub fn post_process_object_detection(
     outputs: &ModelOutputs,

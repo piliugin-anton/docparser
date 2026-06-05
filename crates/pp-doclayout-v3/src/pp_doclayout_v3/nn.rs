@@ -1,6 +1,6 @@
 //! Shared layers (conv+bn, frozen bn, MLP, activations).
 
-use candle_core::{Result, Tensor, D};
+use candle_core::{D, Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Linear, Module, VarBuilder};
 
 use super::config::PpDocLayoutV3Config;
@@ -262,7 +262,13 @@ pub struct MlpPredictionHead {
 }
 
 impl MlpPredictionHead {
-    pub fn new(input_dim: usize, hidden_dim: usize, output_dim: usize, num_layers: usize, vb: VarBuilder) -> Result<Self> {
+    pub fn new(
+        input_dim: usize,
+        hidden_dim: usize,
+        output_dim: usize,
+        num_layers: usize,
+        vb: VarBuilder,
+    ) -> Result<Self> {
         let mut layers = Vec::with_capacity(num_layers);
         let mut dims = vec![input_dim];
         for _ in 0..num_layers - 1 {
@@ -270,7 +276,11 @@ impl MlpPredictionHead {
         }
         dims.push(output_dim);
         for i in 0..num_layers {
-            layers.push(candle_nn::linear(dims[i], dims[i + 1], vb.pp(format!("layers.{i}")))?);
+            layers.push(candle_nn::linear(
+                dims[i],
+                dims[i + 1],
+                vb.pp(format!("layers.{i}")),
+            )?);
         }
         Ok(Self { layers, num_layers })
     }
@@ -293,7 +303,10 @@ pub struct LayerNorm {
 
 impl LayerNorm {
     pub fn new(size: usize, eps: f64, vb: VarBuilder) -> Result<Self> {
-        let cfg = candle_nn::LayerNormConfig { eps, ..Default::default() };
+        let cfg = candle_nn::LayerNormConfig {
+            eps,
+            ..Default::default()
+        };
         Ok(Self {
             inner: candle_nn::layer_norm(size, cfg, vb)?,
         })
@@ -349,8 +362,7 @@ pub fn upsample_bilinear(x: &Tensor, out_h: usize, out_w: usize) -> Result<Tenso
                     let v01 = data[base_in + sy0 * in_w + sx1];
                     let v10 = data[base_in + sy1 * in_w + sx0];
                     let v11 = data[base_in + sy1 * in_w + sx1];
-                    out[base_out + ty * out_w + tx] =
-                        w00 * v00 + w01 * v01 + w10 * v10 + w11 * v11;
+                    out[base_out + ty * out_w + tx] = w00 * v00 + w01 * v01 + w10 * v10 + w11 * v11;
                 }
             }
         }
@@ -370,10 +382,21 @@ pub fn pad_chw(x: &Tensor, pad_w: usize, pad_h: usize) -> Result<Tensor> {
 
 pub fn max_pool2d_ceil(x: &Tensor, kernel: usize, stride: usize) -> Result<Tensor> {
     let (_b, _c, h, w) = x.dims4()?;
-    let out_h = if h >= kernel { (h - kernel) / stride + 1 } else { 0 };
-    let out_w = if w >= kernel { (w - kernel) / stride + 1 } else { 0 };
+    let out_h = if h >= kernel {
+        (h - kernel) / stride + 1
+    } else {
+        0
+    };
+    let out_w = if w >= kernel {
+        (w - kernel) / stride + 1
+    } else {
+        0
+    };
     let mut outs = Vec::new();
-    let data = x.to_dtype(candle_core::DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
+    let data = x
+        .to_dtype(candle_core::DType::F32)?
+        .flatten_all()?
+        .to_vec1::<f32>()?;
     let (b, c, h, w) = x.dims4()?;
     for bi in 0..b {
         for ci in 0..c {

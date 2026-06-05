@@ -3,9 +3,15 @@
 use candle_core::{Result, Tensor};
 
 /// Top-k along last dimension; returns (values, indices as I64).
+fn cmp_f32_desc(a: f32, b: f32) -> std::cmp::Ordering {
+    b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal)
+}
+
 pub fn topk_last_dim(scores: &Tensor, k: usize) -> Result<(Tensor, Tensor)> {
     let dims = scores.dims();
-    let last = *dims.last().unwrap();
+    let last = *dims
+        .last()
+        .ok_or_else(|| candle_core::Error::Msg("topk_last_dim: empty tensor dims".into()))?;
     let batch = scores.elem_count() / last;
     let data = scores.flatten_all()?.to_vec1::<f32>()?;
     let mut values = Vec::with_capacity(batch * k);
@@ -13,9 +19,8 @@ pub fn topk_last_dim(scores: &Tensor, k: usize) -> Result<(Tensor, Tensor)> {
     for b in 0..batch {
         let base = b * last;
         let mut order: Vec<usize> = (0..last).collect();
-        order.sort_by(|&a, &c| data[base + c].partial_cmp(&data[base + a]).unwrap());
-        for i in 0..k.min(last) {
-            let idx = order[i];
+        order.sort_by(|&a, &c| cmp_f32_desc(data[base + a], data[base + c]));
+        for &idx in order.iter().take(k.min(last)) {
             values.push(data[base + idx]);
             indices.push(idx as i64);
         }
@@ -23,7 +28,8 @@ pub fn topk_last_dim(scores: &Tensor, k: usize) -> Result<(Tensor, Tensor)> {
     let mut out_dims = dims.to_vec();
     out_dims[dims.len() - 1] = k;
     let v = Tensor::from_vec(values, out_dims.as_slice(), scores.device())?;
-    let idx = Tensor::from_vec(indices, out_dims.as_slice(), scores.device())?.to_dtype(candle_core::DType::I64)?;
+    let idx = Tensor::from_vec(indices, out_dims.as_slice(), scores.device())?
+        .to_dtype(candle_core::DType::I64)?;
     Ok((v, idx))
 }
 
@@ -83,7 +89,7 @@ pub fn get_order_seqs(order_logits: &Tensor) -> Result<Tensor> {
             }
         }
         let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by(|&a, &c| votes[c].partial_cmp(&votes[a]).unwrap());
+        order.sort_by(|&a, &c| cmp_f32_desc(votes[a], votes[c]));
         for (rank, &pos) in order.iter().enumerate() {
             out[bi * n + pos] = rank as i64;
         }

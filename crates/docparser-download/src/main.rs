@@ -48,14 +48,19 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("docparser_download=info".parse()?))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("docparser_download=info".parse()?),
+        )
         .init();
 
     let args = Args::parse();
 
     if args.verify_only {
         verify_models_dir(&args.models_dir)?;
-        println!("All required model artifacts present under {}", args.models_dir.display());
+        println!(
+            "All required model artifacts present under {}",
+            args.models_dir.display()
+        );
         return Ok(());
     }
 

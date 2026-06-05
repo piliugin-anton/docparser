@@ -197,6 +197,7 @@ pub fn merge_layout_blocks_with_mode_fn(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prop_assert;
 
     fn el(id: usize, label: &str, bbox: [f32; 4]) -> LayoutElement {
         LayoutElement {
@@ -224,5 +225,20 @@ mod tests {
         });
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id, 0);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn merge_never_increases_element_count(
+            outer in 0.0f32..100.0,
+            inner in 10.0f32..30.0,
+        ) {
+            let elements = vec![
+                el(0, "text", [0.0, 0.0, 100.0, 100.0]),
+                el(1, "text", [outer, outer, outer + inner, outer + inner]),
+            ];
+            let out = merge_layout_blocks_with_mode_fn(elements, |_| MergeBboxesMode::Large);
+            prop_assert!(out.len() <= 2);
+        }
     }
 }

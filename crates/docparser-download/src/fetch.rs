@@ -107,9 +107,9 @@ pub async fn download_all(
     if !vlm_only && !layout_only && !doc_prep_only {
         let fixtures_dir = fixtures_dir.to_path_buf();
         let opts = opts.clone();
-        joins.push(tokio::spawn(
-            async move { download_fixtures(&fixtures_dir, &opts).await },
-        ));
+        joins.push(tokio::spawn(async move {
+            download_fixtures(&fixtures_dir, &opts).await
+        }));
     }
 
     for join in joins {
@@ -127,15 +127,15 @@ fn spinner_style() -> Result<ProgressStyle> {
 }
 
 fn bar_style() -> Result<ProgressStyle> {
-    Ok(ProgressStyle::with_template("{msg} [{bar:40}] {bytes}/{total_bytes} ({eta})")
-        .map_err(|e| anyhow::anyhow!("invalid bar progress template: {e}"))?
-        .progress_chars("=>-"))
+    Ok(
+        ProgressStyle::with_template("{msg} [{bar:40}] {bytes}/{total_bytes} ({eta})")
+            .map_err(|e| anyhow::anyhow!("invalid bar progress template: {e}"))?
+            .progress_chars("=>-"),
+    )
 }
 
 async fn acquire_permit(sem: &Semaphore) -> Result<tokio::sync::SemaphorePermit<'_>> {
-    sem.acquire()
-        .await
-        .context("download semaphore closed")
+    sem.acquire().await.context("download semaphore closed")
 }
 
 async fn download_repo(
@@ -287,10 +287,7 @@ async fn stream_to_file(
 ) -> Result<()> {
     let part = partial_path(dest);
     let mut req = client.get(url);
-    if let Some(token) = std::env::var("HF_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(token) = std::env::var("HF_TOKEN").ok().filter(|s| !s.is_empty()) {
         req = req.bearer_auth(token);
     }
 

@@ -123,6 +123,7 @@ pub fn filter_overlap_boxes(elements: Vec<LayoutElement>) -> Vec<LayoutElement> 
 mod tests {
     use super::*;
     use pp_doclayout_v3::LayoutElement;
+    use proptest::prop_assert;
 
     fn el(id: usize, label: &str, bbox: [f32; 4]) -> LayoutElement {
         LayoutElement {
@@ -183,5 +184,24 @@ mod tests {
         let out = filter_overlap_boxes(elements);
         assert_eq!(out.len(), 1);
         assert!((out[0].bbox[2] - 100.0).abs() < 1e-3);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn filter_never_increases_count(
+            x1 in 0.0f32..50.0,
+            y1 in 0.0f32..50.0,
+            w in 1.0f32..40.0,
+            h in 1.0f32..40.0,
+        ) {
+            let bbox = [x1, y1, x1 + w, y1 + h];
+            let elements = vec![
+                el(0, "text", bbox),
+                el(1, "reference", bbox),
+            ];
+            let out = filter_overlap_boxes(elements);
+            prop_assert!(out.len() <= 1);
+            prop_assert!(out.iter().all(|e| e.label != "reference"));
+        }
     }
 }

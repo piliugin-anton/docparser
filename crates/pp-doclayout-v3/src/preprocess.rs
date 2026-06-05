@@ -1,9 +1,9 @@
 //! PP-DocLayoutV3 image preprocessing via HF `preprocessor_config.json`.
 
-use anyhow::Result;
 use candle_core::{Device, Tensor};
 use image::RgbImage;
 
+use crate::Result;
 use crate::image_processor::LayoutImageProcessor;
 
 #[derive(Debug, Clone)]

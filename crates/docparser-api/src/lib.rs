@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -18,12 +18,22 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tracing::info;
 
 mod config;
+mod inference;
 
 pub use config::{ApiConfig, load_env_file};
+pub use inference::InferencePool;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pipeline: Arc<Mutex<DocumentPipeline>>,
+    pub inference: Arc<InferencePool>,
+}
+
+impl AppState {
+    pub fn new(pipeline: DocumentPipeline, queue_depth: usize) -> Self {
+        Self {
+            inference: Arc::new(InferencePool::new(pipeline, queue_depth)),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -46,18 +56,15 @@ pub fn build_router(state: AppState, max_upload_bytes: usize) -> Router {
 }
 
 pub async fn run(config: ApiConfig) -> Result<()> {
-    verify_models_dir(&config.models_dir).context(
-        "model artifacts missing; run: cargo run -p docparser-download",
-    )?;
+    verify_models_dir(&config.models_dir)
+        .context("model artifacts missing; run: cargo run -p docparser-download")?;
 
     let mut pipeline_cfg = config.pipeline.clone();
     pipeline_cfg.max_tokens = config.max_tokens;
     let pipeline = DocumentPipeline::from_models_dir(&config.models_dir, pipeline_cfg)?;
     info!("models loaded from {}", config.models_dir.display());
 
-    let state = AppState {
-        pipeline: Arc::new(Mutex::new(pipeline)),
-    };
+    let state = AppState::new(pipeline, config.inference_queue_depth);
     let app = build_router(state, config.max_upload_mb * 1024 * 1024);
     let addr: SocketAddr = config.bind_addr.parse()?;
     info!("listening on http://{addr}");
@@ -69,7 +76,7 @@ pub async fn run(config: ApiConfig) -> Result<()> {
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
-        models_loaded: Arc::strong_count(&state.pipeline) > 0,
+        models_loaded: Arc::strong_count(&state.inference) > 0,
     })
 }
 
@@ -99,19 +106,11 @@ async fn parse_document(
     let format = detect_image_format(&bytes, filename.as_deref())
         .ok_or_else(|| AppError::unsupported("unsupported image format; use jpg/jpeg/png"))?;
 
-    let pipeline = Arc::clone(&state.pipeline);
-    let fname = filename.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let pipeline = pipeline
-            .lock()
-            .map_err(|e| anyhow::anyhow!("pipeline lock poisoned: {e}"))?;
-        let img = image::load_from_memory_with_format(&bytes, format)
-            .map_err(|e| anyhow::anyhow!("decode image: {e}"))?;
-        pipeline.parse_image(img, fname)
-    })
-    .await
-    .map_err(|e| AppError::internal(format!("task join: {e}")))?
-    .map_err(|e| AppError::internal(e.to_string()))?;
+    let result = state
+        .inference
+        .parse_image(bytes, format, filename)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok((StatusCode::OK, Json(result)))
 }

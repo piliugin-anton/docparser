@@ -21,7 +21,8 @@ fn safetensor_keys_match_expected_prefixes_when_present() {
     let keys = list_safetensor_keys(&model_dir).expect("list keys");
     assert!(!keys.is_empty());
 
-    let golden = docparser_test_utils::load_golden_rel("tests/goldens/layout_safetensor_key_prefixes.json");
+    let golden =
+        docparser_test_utils::load_golden_rel("tests/goldens/layout_safetensor_key_prefixes.json");
     let prefixes: Vec<String> = golden["required_prefixes"]
         .as_array()
         .unwrap()

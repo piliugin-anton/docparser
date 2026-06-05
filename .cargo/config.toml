@@ -3,9 +3,9 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
 
-# Faster links on Linux after installing LLD (`apt install lld`), uncomment:
-# [target.x86_64-unknown-linux-gnu]
-# rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-cpu=native"]
-#
-# [target.aarch64-unknown-linux-gnu]
-# rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-cpu=native"]
+# Faster links on Linux when LLD is installed (`apt install lld`).
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-cpu=native"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-cpu=native"]

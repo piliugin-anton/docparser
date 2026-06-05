@@ -13,7 +13,12 @@ pub fn hardsigmoid(xs: &Tensor) -> Result<Tensor> {
     let three = Tensor::new(3f32, xs.device())?.broadcast_as(xs.shape())?;
     let zero = Tensor::zeros(xs.shape(), xs.dtype(), xs.device())?;
     let one = Tensor::ones(xs.shape(), xs.dtype(), xs.device())?;
-    xs.add(&three)?.relu()?.minimum(&six)?.div(&six)?.maximum(&zero)?.minimum(&one)
+    xs.add(&three)?
+        .relu()?
+        .minimum(&six)?
+        .div(&six)?
+        .maximum(&zero)?
+        .minimum(&one)
 }
 
 pub fn apply_activation(name: &str, xs: &Tensor) -> Result<Tensor> {
@@ -258,7 +263,8 @@ impl PpLcnetModel {
         x = x.mean_keepdim(2)?.mean_keepdim(3)?;
         x = self.last_conv.forward(&x)?;
         x = apply_activation(&self.hidden_act, &x)?;
-        let keep = Tensor::new(1.0 - self.hidden_dropout_prob, x.device())?.broadcast_as(x.shape())?;
+        let keep =
+            Tensor::new(1.0 - self.hidden_dropout_prob, x.device())?.broadcast_as(x.shape())?;
         x = (x * keep)?;
         x = x.squeeze(2)?.squeeze(2)?;
         self.head.forward(&x)

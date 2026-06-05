@@ -14,14 +14,12 @@ pub enum PipelineError {
     Image(#[from] image::ImageError),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("doc orientation model path required when use_orientation=true")]
+    MissingDocOriPath,
+    #[error("UVDoc model path required when use_unwarping=true")]
+    MissingUvdocPath,
     #[error("{0}")]
     Message(String),
-}
-
-impl From<anyhow::Error> for PipelineError {
-    fn from(err: anyhow::Error) -> Self {
-        Self::Message(err.to_string())
-    }
 }
 
 pub type Result<T> = std::result::Result<T, PipelineError>;

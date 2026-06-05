@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use candle_core::{Device, DType};
+use candle_core::{DType, Device};
 use docparser_candle_utils::var_builder_from_safetensors;
 
 use super::config::PpDocLayoutV3Config;
@@ -23,7 +23,11 @@ impl PpDocLayoutV3ForObjectDetection {
         Ok(Self { model })
     }
 
-    pub fn forward(&self, pixel_values: &candle_core::Tensor, pixel_mask: &candle_core::Tensor) -> candle_core::Result<ModelOutputs> {
+    pub fn forward(
+        &self,
+        pixel_values: &candle_core::Tensor,
+        pixel_mask: &candle_core::Tensor,
+    ) -> candle_core::Result<ModelOutputs> {
         self.model.forward(pixel_values, pixel_mask)
     }
 }
