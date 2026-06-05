@@ -934,9 +934,9 @@ impl Attention {
         // No KV cache during prefill
         // Repeat KV heads for GQA (matches: repeat_kv in eager_attention_forward_ernie)
         let key_states_repeated =
-            super::utils::repeat_kv(key_states.clone(), self.num_kv_groups)?.contiguous()?;
+            super::utils::repeat_kv(key_states, self.num_kv_groups)?.contiguous()?;
         let value_states_repeated =
-            super::utils::repeat_kv(value_states.clone(), self.num_kv_groups)?.contiguous()?;
+            super::utils::repeat_kv(value_states, self.num_kv_groups)?.contiguous()?;
 
         tensors.insert("k_repeated".to_string(), key_states_repeated.clone());
         tensors.insert("v_repeated".to_string(), value_states_repeated.clone());
@@ -1118,7 +1118,7 @@ impl TextModel {
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         let vb_l = vb_m.pp("layers");
         for layer_idx in 0..cfg.num_hidden_layers {
-            let layer = DecoderLayer::new(rotary_emb.clone(), cfg, vb_l.pp(layer_idx))?;
+            let layer = DecoderLayer::new(Arc::clone(&rotary_emb), cfg, vb_l.pp(layer_idx))?;
             layers.push(layer);
         }
 

@@ -73,10 +73,17 @@ pub async fn run(config: ApiConfig) -> Result<()> {
 
     let state = AppState::new(pipeline, config.inference_queue_depth);
     let app = build_router(state, config.max_upload_mb * 1024 * 1024);
-    let addr: SocketAddr = config.bind_addr.parse()?;
+    let addr: SocketAddr = config
+        .bind_addr
+        .parse()
+        .context("invalid DOCPARSER_BIND_ADDR")?;
     info!("listening on http://{addr}");
-    let listener = TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .context("failed to bind HTTP listener")?;
+    axum::serve(listener, app)
+        .await
+        .context("HTTP server exited with error")?;
     Ok(())
 }
 
@@ -126,12 +133,10 @@ fn pipeline_error_to_app_error(err: docparser_pipeline::PipelineError) -> AppErr
     use docparser_pipeline::PipelineError;
 
     match err {
-        PipelineError::Image(_) => {
-            AppError::bad_request("invalid or corrupt image data")
+        PipelineError::Image(_) => AppError::bad_request("invalid or corrupt image data"),
+        PipelineError::InferenceQueueFull => {
+            AppError::service_unavailable("inference queue is full; retry later")
         }
-        PipelineError::InferenceQueueFull => AppError::service_unavailable(
-            "inference queue is full; retry later",
-        ),
         PipelineError::InferenceWorkerUnavailable => {
             AppError::service_unavailable("inference worker is unavailable")
         }

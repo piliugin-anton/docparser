@@ -47,8 +47,12 @@ pub fn preprocess(image: &RgbImage, cfg: &PreprocessorConfig, device: &Device) -
     let scale = cfg.resize_short as f32 / short;
     let new_w = (w as f32 * scale).round().max(1.0) as u32;
     let new_h = (h as f32 * scale).round().max(1.0) as u32;
-    let resized = resize_bilinear(image, new_w, new_h)?;
-    let cropped = center_crop(&resized, cfg.crop_size, cfg.crop_size);
+    let cropped = if new_w == w && new_h == h {
+        center_crop(image, cfg.crop_size, cfg.crop_size)
+    } else {
+        let resized = resize_bilinear(image, new_w, new_h)?;
+        center_crop(&resized, cfg.crop_size, cfg.crop_size)
+    };
 
     let crop = cfg.crop_size as usize;
     let mut data = vec![0f32; 3 * crop * crop];
@@ -73,10 +77,6 @@ pub fn preprocess(image: &RgbImage, cfg: &PreprocessorConfig, device: &Device) -
 }
 
 fn resize_bilinear(image: &RgbImage, target_w: u32, target_h: u32) -> Result<RgbImage> {
-    let (src_w, src_h) = image.dimensions();
-    if src_w == target_w && src_h == target_h {
-        return Ok(image.clone());
-    }
     // `FilterType::Triangle` matches PIL/torchvision bilinear more closely than fast_image_resize here.
     Ok(image::imageops::resize(
         image,
@@ -87,20 +87,23 @@ fn resize_bilinear(image: &RgbImage, target_w: u32, target_h: u32) -> Result<Rgb
 }
 
 fn center_crop(image: &RgbImage, crop_h: u32, crop_w: u32) -> RgbImage {
-    let (mut w, mut h) = image.dimensions();
-    let mut img = image.clone();
+    let (w, h) = image.dimensions();
     if crop_w > w || crop_h > h {
         let pad_l = if crop_w > w { (crop_w - w) / 2 } else { 0 };
         let pad_t = if crop_h > h { (crop_h - h) / 2 } else { 0 };
         let pad_r = if crop_w > w { (crop_w - w + 1) / 2 } else { 0 };
         let pad_b = if crop_h > h { (crop_h - h + 1) / 2 } else { 0 };
-        img = pad_rgb(&img, pad_l, pad_t, pad_r, pad_b);
-        w = img.width();
-        h = img.height();
+        let img = pad_rgb(image, pad_l, pad_t, pad_r, pad_b);
+        let w = img.width();
+        let h = img.height();
+        let x0 = (w - crop_w) / 2;
+        let y0 = (h - crop_h) / 2;
+        image::imageops::crop_imm(&img, x0, y0, crop_w.min(w), crop_h.min(h)).to_image()
+    } else {
+        let x0 = (w - crop_w) / 2;
+        let y0 = (h - crop_h) / 2;
+        image::imageops::crop_imm(image, x0, y0, crop_w.min(w), crop_h.min(h)).to_image()
     }
-    let x0 = ((w - crop_w) / 2).max(0);
-    let y0 = ((h - crop_h) / 2).max(0);
-    image::imageops::crop_imm(&img, x0, y0, crop_w.min(w), crop_h.min(h)).to_image()
 }
 
 fn pad_rgb(image: &RgbImage, left: u32, top: u32, right: u32, bottom: u32) -> RgbImage {

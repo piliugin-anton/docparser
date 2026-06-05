@@ -55,30 +55,14 @@ impl LayoutImageProcessor {
         let target_w = self.cfg.size.width;
         let target_h = self.cfg.size.height;
 
-        let resized = if self.cfg.do_resize {
-            resize_bicubic(image, target_w, target_h)?
-        } else {
-            image.clone()
-        };
-
         let th = target_h as usize;
         let tw = target_w as usize;
         let mut chw = vec![0f32; 3 * th * tw];
-        for y in 0..target_h {
-            for x in 0..target_w {
-                let p = resized.get_pixel(x, y);
-                for c in 0..3 {
-                    let mut v = p[c] as f32;
-                    if self.cfg.do_rescale {
-                        v *= self.cfg.rescale_factor;
-                    }
-                    if self.cfg.do_normalize {
-                        v = (v - self.cfg.image_mean[c]) / self.cfg.image_std[c];
-                    }
-                    let idx = c * th * tw + y as usize * tw + x as usize;
-                    chw[idx] = v;
-                }
-            }
+        if self.cfg.do_resize {
+            let resized = resize_bicubic(image, target_w, target_h)?;
+            fill_chw(&mut chw, &resized, target_h, target_w, &self.cfg);
+        } else {
+            fill_chw(&mut chw, image, target_h, target_w, &self.cfg);
         }
 
         let pixel_values =
@@ -95,6 +79,33 @@ impl LayoutImageProcessor {
             orig_width,
             orig_height,
         })
+    }
+}
+
+fn fill_chw(
+    chw: &mut [f32],
+    image: &RgbImage,
+    target_h: u32,
+    target_w: u32,
+    cfg: &LayoutPreprocessorConfig,
+) {
+    let th = target_h as usize;
+    let tw = target_w as usize;
+    for y in 0..target_h {
+        for x in 0..target_w {
+            let p = image.get_pixel(x, y);
+            for c in 0..3 {
+                let mut v = p[c] as f32;
+                if cfg.do_rescale {
+                    v *= cfg.rescale_factor;
+                }
+                if cfg.do_normalize {
+                    v = (v - cfg.image_mean[c]) / cfg.image_std[c];
+                }
+                let idx = c * th * tw + y as usize * tw + x as usize;
+                chw[idx] = v;
+            }
+        }
     }
 }
 

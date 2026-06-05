@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 mod error;
 
-pub use error::{LayoutError, Result};
 use docparser_candle_utils::LazyRunner;
+pub use error::{LayoutError, Result};
 use image::RgbImage;
 use serde::{Deserialize, Serialize};
 
@@ -17,8 +17,8 @@ pub mod pp_doclayout_v3;
 mod preprocess;
 
 pub use image_processor::{LayoutImageProcessor, LayoutPreprocessorConfig};
-pub use preprocess::PreprocessOutput;
 pub use pp_doclayout_v3::PpDocLayoutV3Config;
+pub use preprocess::PreprocessOutput;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutElement {

@@ -87,14 +87,12 @@ impl PpDocLayoutV3Model {
     }
 
     pub fn forward(&self, pixel_values: &Tensor, pixel_mask: &Tensor) -> Result<ModelOutputs> {
-        let (x4_feat, mut features) = self.backbone.forward(pixel_values, pixel_mask)?;
-        let x4 = x4_feat.clone();
-        features.remove(0);
+        let features = self.backbone.forward(pixel_values, pixel_mask)?;
         let mut proj_feats = Vec::new();
-        for (i, (feat, _mask)) in features.into_iter().enumerate() {
-            proj_feats.push(self.encoder_input_proj.forward(&feat, i)?);
+        for (i, (feat, _mask)) in features.iter().skip(1).enumerate() {
+            proj_feats.push(self.encoder_input_proj.forward(feat, i)?);
         }
-        let enc_out = self.encoder.forward(&mut proj_feats, &x4)?;
+        let enc_out = self.encoder.forward(&mut proj_feats, &features[0].0)?;
 
         let mut sources = Vec::new();
         for (level, feat) in enc_out.feature_maps.iter().enumerate() {

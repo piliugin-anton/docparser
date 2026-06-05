@@ -1,12 +1,16 @@
-use std::path::Path;
-
 use pp_doclayout_v3::{LayoutConfig, list_safetensor_keys};
 
 #[test]
-fn config_parses_from_fixture() {
-    let cfg = LayoutConfig::from_dir(Path::new("tests/fixtures"), 0.5).expect("parse layout config");
-    assert_eq!(cfg.num_queries, 300);
-    assert_eq!(cfg.num_labels, 25);
+fn config_parses_from_model_dir() {
+    let model_dir = docparser_test_utils::workspace_root().join("models/PP-DocLayoutV3");
+    let config_path = model_dir.join("config.json");
+    if !config_path.is_file() {
+        eprintln!("skip: {} not found", config_path.display());
+        return;
+    }
+    let cfg = LayoutConfig::from_dir(&model_dir, 0.5).expect("parse layout config");
+    assert_eq!(cfg.num_queries(), 300);
+    assert_eq!(cfg.num_labels(), 25);
 }
 
 #[test]

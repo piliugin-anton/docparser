@@ -1,9 +1,9 @@
 //! Document preprocessor: orientation classification then geometric unwarping.
 
-use image::DynamicImage;
 use docparser_doc_prep::orientation::DocOrientationModel;
-use serde::{Deserialize, Serialize};
 use docparser_doc_prep::unwarp::UvdocModel;
+use image::DynamicImage;
+use serde::{Deserialize, Serialize};
 
 use crate::{PipelineError, Result};
 

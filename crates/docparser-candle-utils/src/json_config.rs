@@ -16,10 +16,9 @@ pub fn read_json_file(path: &Path) -> Result<String> {
 pub fn read_json_from_dir(model_dir: &Path, filename: &str) -> Result<String> {
     let path = model_dir.join(filename);
     read_json_file(&path).map_err(|e| match e {
-        CandleUtilsError::Io(err) => CandleUtilsError::Message(format!(
-            "read {}: {err}",
-            path.display()
-        )),
+        CandleUtilsError::Io(err) => {
+            CandleUtilsError::Message(format!("read {}: {err}", path.display()))
+        }
         other => other,
     })
 }

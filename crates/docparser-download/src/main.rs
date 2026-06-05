@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use docparser_download::{DownloadOptions, download_all, verify_models_dir};
 use tracing_subscriber::EnvFilter;
@@ -45,6 +45,14 @@ struct Args {
     verify_only: bool,
 }
 
+async fn verify_models_dir_blocking(models_dir: &Path) -> Result<()> {
+    let models_dir = models_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || verify_models_dir(&models_dir))
+        .await
+        .context("verify task join error")?
+        .context("model verification failed")
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -56,7 +64,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.verify_only {
-        verify_models_dir(&args.models_dir)?;
+        verify_models_dir_blocking(&args.models_dir).await?;
         println!(
             "All required model artifacts present under {}",
             args.models_dir.display()
@@ -81,10 +89,11 @@ async fn main() -> Result<()> {
         args.fixtures_only,
         &opts,
     )
-    .await?;
+    .await
+    .context("download failed")?;
 
     if !args.dry_run {
-        verify_models_dir(&args.models_dir)?;
+        verify_models_dir_blocking(&args.models_dir).await?;
         println!(
             "Download complete.\n  models: {}\n  fixtures: {}",
             args.models_dir.display(),

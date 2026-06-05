@@ -19,6 +19,7 @@
 //! - [Paper](https://arxiv.org/abs/2510.14528)
 //! - [HuggingFace Model](https://huggingface.co/PaddlePaddle/PaddleOCR-VL)
 
+// Token/position index casts mirror upstream HuggingFace tensor shapes (usize -> u32/i64).
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 
 use candle_core::{D, DType, Device, IndexOp, Result, Tensor};

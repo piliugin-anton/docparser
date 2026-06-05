@@ -16,17 +16,14 @@ use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use candle_nn::VarBuilder;
 pub use error::{CandleUtilsError, Result};
 
-fn contig(t: &Tensor) -> CandleResult<Tensor> {
-    if t.is_contiguous() {
-        Ok(t.clone())
-    } else {
-        t.contiguous()
-    }
-}
-
 /// Matmul for MKL: both operands must be contiguous (transpose/views are not).
 pub fn matmul(lhs: &Tensor, rhs: &Tensor) -> CandleResult<Tensor> {
-    contig(lhs)?.matmul(&contig(rhs)?)
+    match (lhs.is_contiguous(), rhs.is_contiguous()) {
+        (true, true) => lhs.matmul(rhs),
+        (false, true) => lhs.contiguous()?.matmul(rhs),
+        (true, false) => lhs.matmul(&rhs.contiguous()?),
+        (false, false) => lhs.contiguous()?.matmul(&rhs.contiguous()?),
+    }
 }
 
 /// `lhs @ transpose(rhs, dim1, dim2)`.
@@ -59,9 +56,8 @@ pub fn var_builder_from_safetensors(
             weights.display()
         )));
     }
-    let weights_path = weights.clone();
     // SAFETY: mmap is read-only; weights are not mutated.
-    unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device) }
+    unsafe { VarBuilder::from_mmaped_safetensors(&[weights], dtype, device) }
         .map_err(CandleUtilsError::Candle)
 }
 

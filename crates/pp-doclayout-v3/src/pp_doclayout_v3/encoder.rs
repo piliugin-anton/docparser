@@ -25,17 +25,17 @@ impl ConvEncoder {
         &self,
         pixel_values: &Tensor,
         _pixel_mask: &Tensor,
-    ) -> Result<(Tensor, Vec<(Tensor, Tensor)>)> {
+    ) -> Result<Vec<(Tensor, Tensor)>> {
         let maps = self.backbone.forward(pixel_values)?;
-        let x4 = maps[0].clone();
-        let mut out = Vec::new();
-        for m in maps {
-            out.push((
-                m,
-                Tensor::ones((1,), pixel_values.dtype(), pixel_values.device())?,
-            ));
-        }
-        Ok((x4, out))
+        Ok(maps
+            .into_iter()
+            .map(|m| {
+                Ok((
+                    m,
+                    Tensor::ones((1,), pixel_values.dtype(), pixel_values.device())?,
+                ))
+            })
+            .collect::<Result<_>>()?)
     }
 }
 
@@ -397,8 +397,7 @@ impl CspRepLayer {
     }
 
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let h1 = self.conv1.forward(x)?;
-        let mut h = h1.clone();
+        let mut h = self.conv1.forward(x)?;
         for b in &self.bottlenecks {
             h = b.forward(&h)?;
         }

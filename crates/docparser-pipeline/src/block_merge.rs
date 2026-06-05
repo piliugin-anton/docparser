@@ -76,18 +76,12 @@ pub fn calculate_overlap_ratio(bbox1: [f32; 4], bbox2: [f32; 4]) -> f32 {
     }
 }
 
-fn calc_merged_wh(images: &[RgbImage]) -> (u32, u32) {
-    let w = images.iter().map(|i| i.width()).max().unwrap_or(0);
-    let h: u32 = images.iter().map(|i| i.height()).sum();
-    (w, h)
-}
-
-fn merge_images(images: &[RgbImage], aligns: &[&str]) -> RgbImage {
+fn merge_images(images: Vec<RgbImage>, aligns: &[&str]) -> RgbImage {
     if images.is_empty() {
         return RgbImage::new(1, 1);
     }
     if images.len() == 1 {
-        return images[0].clone();
+        return images.into_iter().next().expect("single-image merge group");
     }
     let mut x_offsets = vec![0u32; images.len()];
     let mut merged_w = images[0].width();
@@ -140,11 +134,19 @@ fn get_alignment(block_bbox: [f32; 4], prev_bbox: [f32; 4]) -> &'static str {
 fn overlap_with_other_box(
     block_idx: usize,
     prev_idx: usize,
-    blocks: &[CropBlock],
+    blocks: &[Option<CropBlock>],
     non_merge_set: &std::collections::HashSet<&str>,
 ) -> bool {
-    let prev_bbox = blocks[prev_idx].element.bbox;
-    let block_bbox = blocks[block_idx].element.bbox;
+    let prev_bbox = blocks[prev_idx]
+        .as_ref()
+        .expect("block slot must be populated during planning")
+        .element
+        .bbox;
+    let block_bbox = blocks[block_idx]
+        .as_ref()
+        .expect("block slot must be populated during planning")
+        .element
+        .bbox;
     let min_box = [
         prev_bbox[0].min(block_bbox[0]),
         prev_bbox[1].min(block_bbox[1]),
@@ -155,6 +157,9 @@ fn overlap_with_other_box(
         if idx == block_idx || idx == prev_idx {
             continue;
         }
+        let Some(other) = other else {
+            continue;
+        };
         if non_merge_set.contains(other.element.label.as_str())
             && calculate_overlap_ratio(min_box, other.element.bbox) > 0.0
         {
@@ -170,16 +175,20 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
         return blocks;
     }
 
+    let mut blocks: Vec<Option<CropBlock>> = blocks.into_iter().map(Some).collect();
+
     let non_merge_set: std::collections::HashSet<&str> =
         non_merge_labels.iter().map(|s| s.as_str()).collect();
 
-    let mut non_merge_blocks: std::collections::HashMap<usize, CropBlock> =
-        std::collections::HashMap::new();
+    let mut non_merge_indices = std::collections::HashSet::new();
     let mut blocks_to_merge: Vec<(usize, usize)> = Vec::new();
 
     for (idx, block) in blocks.iter().enumerate() {
+        let block = block
+            .as_ref()
+            .expect("block slot must be populated during planning");
         if non_merge_set.contains(block.element.label.as_str()) {
-            non_merge_blocks.insert(idx, block.clone());
+            non_merge_indices.insert(idx);
         } else {
             blocks_to_merge.push((idx, idx));
         }
@@ -197,8 +206,12 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
         }
 
         let prev_idx = blocks_to_merge[i - 1].0;
-        let prev_block = &blocks[prev_idx];
-        let block = &blocks[idx];
+        let prev_block = blocks[prev_idx]
+            .as_ref()
+            .expect("block slot must be populated during planning");
+        let block = blocks[idx]
+            .as_ref()
+            .expect("block slot must be populated during planning");
         let prev_bbox = prev_block.element.bbox;
         let block_bbox = block.element.bbox;
         let block_label = block.element.label.as_str();
@@ -236,9 +249,11 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
                 current_aligns.push(a);
             }
         } else {
-            merged_groups.push((current_group.clone(), current_aligns.clone()));
-            current_group = vec![idx];
-            current_aligns.clear();
+            merged_groups.push((
+                std::mem::take(&mut current_group),
+                std::mem::take(&mut current_aligns),
+            ));
+            current_group.push(idx);
         }
     }
     if !current_group.is_empty() {
@@ -266,30 +281,43 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
         if let Some((start, end, group_indices, aligns)) = group_by_start.get(&idx) {
             let (start, end, group_indices, aligns) = (*start, *end, group_indices, aligns);
             if group_indices.iter().all(|i| !used_indices.contains(i)) {
-                let imgs: Vec<RgbImage> = group_indices
+                let crop_dims: Vec<(u32, u32)> = group_indices
                     .iter()
-                    .filter_map(|&gi| blocks[gi].crop.clone())
+                    .filter_map(|&gi| {
+                        blocks[gi]
+                            .as_ref()
+                            .and_then(|b| b.crop.as_ref().map(RgbImage::dimensions))
+                    })
                     .collect();
-                let (w, h) = calc_merged_wh(&imgs);
-                let aspect_ratio = if w > 0 {
-                    h as f32 / w as f32
+                let merged_w = crop_dims.iter().map(|(w, _)| *w).max().unwrap_or(0);
+                let merged_h: u32 = crop_dims.iter().map(|(_, h)| h).sum();
+                let aspect_ratio = if merged_w > 0 {
+                    merged_h as f32 / merged_w as f32
                 } else {
                     f32::INFINITY
                 };
 
                 if aspect_ratio >= 3.0 {
                     for &block_idx in group_indices {
-                        let mut b = blocks[block_idx].clone();
+                        let mut b = blocks[block_idx]
+                            .take()
+                            .expect("block slot must be populated during merge");
                         b.group_id = None;
                         result_blocks.push(b);
                         used_indices.insert(block_idx);
                     }
-                } else if !imgs.is_empty() {
-                    let merged_img = merge_images(&imgs, aligns);
+                } else if !crop_dims.is_empty() {
+                    let imgs: Vec<RgbImage> = group_indices
+                        .iter()
+                        .filter_map(|&gi| blocks[gi].as_mut().and_then(|b| b.crop.take()))
+                        .collect();
+                    let mut merged_crop = Some(merge_images(imgs, aligns));
                     for (j, &block_idx) in group_indices.iter().enumerate() {
-                        let mut b = blocks[block_idx].clone();
+                        let mut b = blocks[block_idx]
+                            .take()
+                            .expect("block slot must be populated during merge");
                         if j == 0 {
-                            b.crop = Some(merged_img.clone());
+                            b.crop = merged_crop.take();
                         } else {
                             b.crop = None;
                         }
@@ -299,19 +327,27 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
                     }
                 } else {
                     for &block_idx in group_indices {
-                        result_blocks.push(blocks[block_idx].clone());
+                        result_blocks.push(
+                            blocks[block_idx]
+                                .take()
+                                .expect("block slot must be populated during merge"),
+                        );
                         used_indices.insert(block_idx);
                     }
                 }
 
                 let mut insert_list = Vec::new();
                 for n_idx in (start + 1)..=end {
-                    if non_merge_blocks.contains_key(&n_idx) {
+                    if non_merge_indices.contains(&n_idx) {
                         insert_list.push(n_idx);
                     }
                 }
                 for n_idx in insert_list {
-                    result_blocks.push(non_merge_blocks[&n_idx].clone());
+                    result_blocks.push(
+                        blocks[n_idx]
+                            .take()
+                            .expect("block slot must be populated during merge"),
+                    );
                     used_indices.insert(n_idx);
                 }
                 idx = end + 1;
@@ -321,13 +357,21 @@ pub fn merge_blocks(blocks: Vec<CropBlock>, non_merge_labels: &[String]) -> Vec<
         if group_found {
             continue;
         }
-        if let Some(nm) = non_merge_blocks.get(&idx) {
+        if non_merge_indices.contains(&idx) {
             if !used_indices.contains(&idx) {
-                result_blocks.push(nm.clone());
+                result_blocks.push(
+                    blocks[idx]
+                        .take()
+                        .expect("block slot must be populated during merge"),
+                );
                 used_indices.insert(idx);
             }
         } else if !used_indices.contains(&idx) {
-            result_blocks.push(blocks[idx].clone());
+            result_blocks.push(
+                blocks[idx]
+                    .take()
+                    .expect("block slot must be populated during merge"),
+            );
             used_indices.insert(idx);
         }
         idx += 1;

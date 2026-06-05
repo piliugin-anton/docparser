@@ -60,6 +60,8 @@ impl InferencePool {
                 return Err(PipelineError::InferenceWorkerUnavailable);
             }
         }
-        reply_rx.await.map_err(|_| PipelineError::InferenceWorkerUnavailable)?
+        reply_rx
+            .await
+            .map_err(|_| PipelineError::InferenceWorkerUnavailable)?
     }
 }

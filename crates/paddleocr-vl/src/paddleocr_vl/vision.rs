@@ -55,11 +55,11 @@ impl PosEmbedCache {
         }
 
         // Evict LFU entry if at capacity
-        if self.cache.len() >= self.max_size {
-            if let Some((&lfu_key, _)) = self.frequency.iter().min_by_key(|&(_, freq)| freq) {
-                self.cache.remove(&lfu_key);
-                self.frequency.remove(&lfu_key);
-            }
+        if self.cache.len() >= self.max_size
+            && let Some((&lfu_key, _)) = self.frequency.iter().min_by_key(|&(_, freq)| freq)
+        {
+            self.cache.remove(&lfu_key);
+            self.frequency.remove(&lfu_key);
         }
 
         // Insert new entry
@@ -1178,7 +1178,7 @@ impl VisionModel {
         let cu_seqlens = self.build_cu_seqlens(grid_thw)?;
 
         // Export RoPE embeddings for comparison
-        exports.insert("rope_pos_emb_raw".to_string(), rotary_pos_emb.clone());
+        exports.insert("rope_pos_emb_raw".to_string(), rotary_pos_emb);
 
         // Pass through encoder layers with checkpoints
         // Layer 0 gets detailed debug export

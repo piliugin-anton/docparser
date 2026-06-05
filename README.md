@@ -146,16 +146,16 @@ Each parse adds ~40 MB mmap for doc-prep weights and modest per-page latency on 
 Fast checks (no weights):
 
 ```bash
-cargo test --workspace
+cargo nextest run --workspace
 ```
 
 Slow parity tests (requires downloaded models; VLM generate ~5 min on CPU):
 
 ```bash
 # VLM only (avoid loading the full pipeline):
-RUN_SLOW=1 cargo test -p paddleocr-vl --test preprocess_parity --test generate_parity -- --ignored
+RUN_SLOW=1 cargo nextest run -p paddleocr-vl --test preprocess_parity --test generate_parity --run-ignored all
 # All slow tests:
-RUN_SLOW=1 cargo test --workspace -- --ignored
+RUN_SLOW=1 cargo nextest run --workspace --run-ignored all
 ```
 
 Regenerate golden files (optional, Python dev harness):
