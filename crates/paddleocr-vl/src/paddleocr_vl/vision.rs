@@ -166,12 +166,14 @@ impl PatchEmbedding {
             return Ok(result);
         }
 
-        // Reshape position embedding to (base_h, base_w, hidden)
-        let pos_embed = self.position_embedding.to_dtype(DType::F32)?.reshape((
-            base_h,
-            base_w,
-            self.hidden_size,
-        ))?;
+        // Single bulk extract; row-major layout is (base_h, base_w, hidden_size).
+        let pos_data = self
+            .position_embedding
+            .to_dtype(DType::F32)?
+            .reshape((base_h, base_w, self.hidden_size))?
+            .flatten_all()?
+            .to_vec1::<f32>()?;
+        let row_stride = base_w * self.hidden_size;
 
         // Compute scale factors (align_corners=False style)
         let scale_h = base_h as f64 / target_h as f64;
@@ -204,15 +206,17 @@ impl PatchEmbedding {
                 let w10 = fy * (1.0 - fx);
                 let w11 = fy * fx;
 
-                // Get the 4 corner embeddings
-                let e00: Vec<f32> = pos_embed.i((sy0, sx0))?.to_vec1()?;
-                let e01: Vec<f32> = pos_embed.i((sy0, sx1))?.to_vec1()?;
-                let e10: Vec<f32> = pos_embed.i((sy1, sx0))?.to_vec1()?;
-                let e11: Vec<f32> = pos_embed.i((sy1, sx1))?.to_vec1()?;
+                let o00 = sy0 * row_stride + sx0 * self.hidden_size;
+                let o01 = sy0 * row_stride + sx1 * self.hidden_size;
+                let o10 = sy1 * row_stride + sx0 * self.hidden_size;
+                let o11 = sy1 * row_stride + sx1 * self.hidden_size;
 
                 // Interpolate each dimension
                 for d in 0..self.hidden_size {
-                    let val = w00 * e00[d] + w01 * e01[d] + w10 * e10[d] + w11 * e11[d];
+                    let val = w00 * pos_data[o00 + d]
+                        + w01 * pos_data[o01 + d]
+                        + w10 * pos_data[o10 + d]
+                        + w11 * pos_data[o11 + d];
                     output_data.push(val);
                 }
             }

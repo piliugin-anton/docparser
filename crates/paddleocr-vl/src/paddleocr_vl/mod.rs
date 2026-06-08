@@ -41,6 +41,120 @@ use vision::VisionModel;
 /// Type alias for debug generation output: generated tokens and per-step tensor exports.
 pub type GenerateDebugOutput = (Vec<u32>, Vec<std::collections::HashMap<String, Tensor>>);
 
+fn greedy_argmax_token(logits: &Tensor) -> Result<u32> {
+    logits
+        .argmax(D::Minus1)?
+        .to_dtype(DType::U32)?
+        .flatten_all()?
+        .to_scalar::<u32>()
+}
+
+fn greedy_argmax_last_seq_token(logits: &Tensor) -> Result<u32> {
+    let seq_len = logits.dim(1)?;
+    logits
+        .i((.., seq_len - 1, ..))?
+        .argmax(D::Minus1)?
+        .to_dtype(DType::U32)?
+        .flatten_all()?
+        .to_scalar::<u32>()
+}
+
+/// Contiguous `(start, end)` spans of `token_id` in a flattened batch-major `input_ids` slice.
+fn find_contiguous_token_ranges(input_ids: &[u32], token_id: u32) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut in_span = false;
+    let mut start = 0usize;
+    for (pos, &id) in input_ids.iter().enumerate() {
+        if id == token_id {
+            if !in_span {
+                in_span = true;
+                start = pos;
+            }
+        } else if in_span {
+            ranges.push((start, pos));
+            in_span = false;
+        }
+    }
+    if in_span {
+        ranges.push((start, input_ids.len()));
+    }
+    ranges
+}
+
+/// Per-batch contiguous spans of `token_id` within each sequence row.
+fn find_contiguous_token_ranges_per_batch(
+    input_ids: &[u32],
+    batch_size: usize,
+    seq_len: usize,
+    token_id: u32,
+) -> Vec<Vec<(usize, usize)>> {
+    let mut per_batch = Vec::with_capacity(batch_size);
+    for batch in 0..batch_size {
+        let base = batch * seq_len;
+        per_batch.push(find_contiguous_token_ranges(
+            &input_ids[base..base + seq_len],
+            token_id,
+        ));
+    }
+    per_batch
+}
+
+/// Scatter vision embedding rows into `input_embeds` in one flatten/copy pass.
+///
+/// Each assignment writes `embeddings` `(num_tokens, hidden)` at
+/// `input_embeds[batch, start..start + num_tokens, :]`.
+fn scatter_vision_blocks(
+    input_embeds: &Tensor,
+    assignments: &[(usize, usize, &Tensor)],
+) -> Result<Tensor> {
+    let (batch_size, seq_len, hidden) = input_embeds.dims3()?;
+    let dtype = input_embeds.dtype();
+    let device = input_embeds.device();
+
+    let mut flat = input_embeds
+        .to_dtype(DType::F32)?
+        .flatten_all()?
+        .to_vec1::<f32>()?;
+
+    for &(batch, start, embeds) in assignments {
+        let num_tokens = embeds.dim(0)?;
+        let embed_hidden = embeds.dim(1)?;
+        if embed_hidden != hidden {
+            candle_core::bail!(
+                "scatter_vision_blocks: hidden mismatch (expected {hidden}, got {embed_hidden})"
+            );
+        }
+        if batch >= batch_size {
+            candle_core::bail!("scatter_vision_blocks: batch index {batch} out of range");
+        }
+        if start + num_tokens > seq_len {
+            candle_core::bail!(
+                "scatter_vision_blocks: token span {}..{} exceeds seq_len {seq_len}",
+                start,
+                start + num_tokens
+            );
+        }
+
+        let vision = embeds.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
+        let expected = num_tokens * hidden;
+        if vision.len() != expected {
+            candle_core::bail!(
+                "scatter_vision_blocks: vision buffer len {} != expected {expected}",
+                vision.len()
+            );
+        }
+
+        for t in 0..num_tokens {
+            let row = batch * seq_len + start + t;
+            let dst = row * hidden;
+            let src = t * hidden;
+            flat[dst..dst + hidden].copy_from_slice(&vision[src..src + hidden]);
+        }
+    }
+
+    Tensor::from_vec(flat, (batch_size, seq_len, hidden), device)?.to_dtype(dtype)
+}
+
 /// PaddleOCR-VL Model for vision-language OCR tasks.
 ///
 /// This model combines a NaViT-style vision encoder with an ERNIE-4.5 text decoder
@@ -174,7 +288,6 @@ impl PaddleOCRVLModel {
 
         // Get text embeddings
         let mut input_embeds = self.text.embed_tokens(input_ids)?;
-        let hidden_dim = self.text.hidden_size;
 
         // Track grid dimensions for M-RoPE position computation
         let mut merged_grid_h = 0usize;
@@ -194,28 +307,34 @@ impl PaddleOCRVLModel {
                 merged_grid_w = (grid_thw_vec[2] as usize) / spatial_merge_size;
             }
 
-            // Find image token positions and replace with image embeddings
-            let input_ids_flat = input_ids.flatten_all()?;
-            let input_ids_vec = input_ids_flat.to_vec1::<u32>()?;
-
-            let mut image_offset = 0usize;
+            let input_ids_vec = input_ids.flatten_all()?.to_vec1::<u32>()?;
+            let ranges_per_batch = find_contiguous_token_ranges_per_batch(
+                &input_ids_vec,
+                batch_size,
+                seq_len,
+                self.image_token_id,
+            );
+            let mut assignment_tensors = Vec::new();
+            let mut vision_offset = 0usize;
             let num_image_tokens = image_embeds.dim(0)?;
-
-            for batch in 0..batch_size {
-                for pos in 0..seq_len {
-                    let idx = batch * seq_len + pos;
-                    if input_ids_vec[idx] == self.image_token_id && image_offset < num_image_tokens
-                    {
-                        // Replace this token's embedding with image embedding
-                        let img_emb = image_embeds.i(image_offset)?.unsqueeze(0)?.unsqueeze(0)?;
-                        input_embeds = input_embeds.slice_assign(
-                            &[batch..batch + 1, pos..pos + 1, 0..hidden_dim],
-                            &img_emb,
-                        )?;
-                        image_offset += 1;
-                    }
+            for (batch, ranges) in ranges_per_batch.iter().enumerate() {
+                for (start, end) in ranges {
+                    let len = end - start;
+                    let block = image_embeds.narrow(0, vision_offset, len)?;
+                    assignment_tensors.push((batch, *start, block));
+                    vision_offset += len;
                 }
             }
+            if vision_offset != num_image_tokens {
+                candle_core::bail!(
+                    "image placeholder count {vision_offset} != vision embeddings {num_image_tokens}"
+                );
+            }
+            let assignments: Vec<(usize, usize, &Tensor)> = assignment_tensors
+                .iter()
+                .map(|(b, s, t)| (*b, *s, t))
+                .collect();
+            input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
 
             // Use M-RoPE with 3D position IDs for prefill with vision tokens
             let position_ids = compute_mrope_position_ids(
@@ -285,7 +404,6 @@ impl PaddleOCRVLModel {
 
         // Get text embeddings
         let mut input_embeds = self.text.embed_tokens(input_ids)?;
-        let hidden_dim = self.text.hidden_size;
 
         // Encode all images, getting separate embeddings for each
         let image_embeds_list = self.encode_images_multi(pixel_values, grid_thw)?;
@@ -309,25 +427,8 @@ impl PaddleOCRVLModel {
         let input_ids_flat = input_ids.flatten_all()?;
         let input_ids_vec = input_ids_flat.to_vec1::<u32>()?;
 
-        // Find all image token ranges
-        let mut image_ranges: Vec<(usize, usize)> = Vec::new();
-        let mut in_image = false;
-        let mut image_start = 0usize;
-
-        for (pos, &token_id) in input_ids_vec.iter().enumerate() {
-            if token_id == self.image_token_id {
-                if !in_image {
-                    in_image = true;
-                    image_start = pos;
-                }
-            } else if in_image {
-                image_ranges.push((image_start, pos));
-                in_image = false;
-            }
-        }
-        if in_image {
-            image_ranges.push((image_start, input_ids_vec.len()));
-        }
+        let image_ranges =
+            find_contiguous_token_ranges(&input_ids_vec, self.image_token_id);
 
         // Verify we have the right number of image ranges
         if image_ranges.len() != image_embeds_list.len() {
@@ -338,7 +439,7 @@ impl PaddleOCRVLModel {
             )));
         }
 
-        // Inject each image's embeddings at the correct positions
+        let mut assignments = Vec::with_capacity(batch_size * image_ranges.len());
         for batch in 0..batch_size {
             for (img_idx, ((start, end), embeddings)) in image_ranges
                 .iter()
@@ -355,14 +456,10 @@ impl PaddleOCRVLModel {
                     )));
                 }
 
-                // Replace each placeholder token with the corresponding embedding
-                for (offset, pos) in (*start..*end).enumerate() {
-                    let img_emb = embeddings.i(offset)?.unsqueeze(0)?.unsqueeze(0)?;
-                    input_embeds = input_embeds
-                        .slice_assign(&[batch..batch + 1, pos..pos + 1, 0..hidden_dim], &img_emb)?;
-                }
+                assignments.push((batch, *start, embeddings));
             }
         }
+        input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
 
         // Compute M-RoPE position IDs for multi-image input
         let position_ids = compute_mrope_position_ids_multi(
@@ -402,7 +499,6 @@ impl PaddleOCRVLModel {
 
         // Get text embeddings
         let mut input_embeds = self.text.embed_tokens(input_ids)?;
-        let hidden_dim = self.text.hidden_size;
 
         // Encode each image separately
         let image_embeds_list = self.encode_images_separate(pixel_values_list, grid_thw_list)?;
@@ -415,37 +511,16 @@ impl PaddleOCRVLModel {
         let spatial_merge_size = 2; // 2x2 merge
         let mut image_grids: Vec<ImageGrid> = Vec::with_capacity(grid_thw_list.len());
         for grid_thw in grid_thw_list {
-            let grid_vec: Vec<Vec<u32>> = grid_thw.to_vec2()?;
-            let g = &grid_vec[0];
+            let row = grid_thw.i(0)?;
             image_grids.push(ImageGrid {
-                grid_h: (g[1] as usize) / spatial_merge_size,
-                grid_w: (g[2] as usize) / spatial_merge_size,
+                grid_h: row.i(1)?.to_scalar::<u32>()? as usize / spatial_merge_size,
+                grid_w: row.i(2)?.to_scalar::<u32>()? as usize / spatial_merge_size,
             });
         }
 
-        // Find image token ranges and inject embeddings
-        let input_ids_flat = input_ids.flatten_all()?;
-        let input_ids_vec = input_ids_flat.to_vec1::<u32>()?;
-
-        // Find all image token ranges
-        let mut image_ranges: Vec<(usize, usize)> = Vec::new();
-        let mut in_image = false;
-        let mut image_start = 0usize;
-
-        for (pos, &token_id) in input_ids_vec.iter().enumerate() {
-            if token_id == self.image_token_id {
-                if !in_image {
-                    in_image = true;
-                    image_start = pos;
-                }
-            } else if in_image {
-                image_ranges.push((image_start, pos));
-                in_image = false;
-            }
-        }
-        if in_image {
-            image_ranges.push((image_start, input_ids_vec.len()));
-        }
+        let input_ids_vec = input_ids.flatten_all()?.to_vec1::<u32>()?;
+        let image_ranges =
+            find_contiguous_token_ranges(&input_ids_vec, self.image_token_id);
 
         // Verify we have the right number of image ranges
         if image_ranges.len() != image_embeds_list.len() {
@@ -456,7 +531,7 @@ impl PaddleOCRVLModel {
             )));
         }
 
-        // Inject each image's embeddings at the correct positions
+        let mut assignments = Vec::with_capacity(batch_size * image_ranges.len());
         for batch in 0..batch_size {
             for (img_idx, ((start, end), embeddings)) in image_ranges
                 .iter()
@@ -473,14 +548,10 @@ impl PaddleOCRVLModel {
                     )));
                 }
 
-                // Replace each placeholder token with the corresponding embedding
-                for (offset, pos) in (*start..*end).enumerate() {
-                    let img_emb = embeddings.i(offset)?.unsqueeze(0)?.unsqueeze(0)?;
-                    input_embeds = input_embeds
-                        .slice_assign(&[batch..batch + 1, pos..pos + 1, 0..hidden_dim], &img_emb)?;
-                }
+                assignments.push((batch, *start, embeddings));
             }
         }
+        input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
 
         // Compute M-RoPE position IDs for multi-image input
         let position_ids = compute_mrope_position_ids_multi(
@@ -525,10 +596,7 @@ impl PaddleOCRVLModel {
 
         // First forward pass with image
         let logits = self.forward(&current_ids, Some(pixel_values), Some(grid_thw), 0)?;
-        let next_token = logits
-            .argmax(D::Minus1)?
-            .to_dtype(DType::U32)?
-            .to_vec1::<u32>()?[0];
+        let next_token = greedy_argmax_token(&logits)?;
 
         generated_tokens.push(next_token);
 
@@ -542,10 +610,7 @@ impl PaddleOCRVLModel {
         // Subsequent forward passes (text only, using KV cache)
         for _ in 1..max_new_tokens {
             let logits = self.forward(&current_ids, None, None, seqlen_offset)?;
-            let next_token = logits
-                .argmax(D::Minus1)?
-                .to_dtype(DType::U32)?
-                .to_vec1::<u32>()?[0];
+            let next_token = greedy_argmax_token(&logits)?;
 
             generated_tokens.push(next_token);
 
@@ -586,10 +651,7 @@ impl PaddleOCRVLModel {
 
         // First forward pass with all images
         let logits = self.forward_multi_image(&current_ids, pixel_values, grid_thw, 0)?;
-        let next_token = logits
-            .argmax(D::Minus1)?
-            .to_dtype(DType::U32)?
-            .to_vec1::<u32>()?[0];
+        let next_token = greedy_argmax_token(&logits)?;
 
         generated_tokens.push(next_token);
 
@@ -604,10 +666,7 @@ impl PaddleOCRVLModel {
         // Uses same incremental decoding as single-image generation
         for _ in 1..max_new_tokens {
             let logits = self.forward(&current_ids, None, None, seqlen_offset)?;
-            let next_token = logits
-                .argmax(D::Minus1)?
-                .to_dtype(DType::U32)?
-                .to_vec1::<u32>()?[0];
+            let next_token = greedy_argmax_token(&logits)?;
 
             generated_tokens.push(next_token);
 
@@ -652,10 +711,7 @@ impl PaddleOCRVLModel {
         // First forward pass with all images (processed separately)
         let logits =
             self.forward_multi_image_separate(&current_ids, pixel_values_list, grid_thw_list, 0)?;
-        let next_token = logits
-            .argmax(D::Minus1)?
-            .to_dtype(DType::U32)?
-            .to_vec1::<u32>()?[0];
+        let next_token = greedy_argmax_token(&logits)?;
 
         generated_tokens.push(next_token);
 
@@ -669,10 +725,7 @@ impl PaddleOCRVLModel {
         // Subsequent forward passes (text only, using KV cache)
         for _ in 1..max_new_tokens {
             let logits = self.forward(&current_ids, None, None, seqlen_offset)?;
-            let next_token = logits
-                .argmax(D::Minus1)?
-                .to_dtype(DType::U32)?
-                .to_vec1::<u32>()?[0];
+            let next_token = greedy_argmax_token(&logits)?;
 
             generated_tokens.push(next_token);
 
@@ -714,7 +767,6 @@ impl PaddleOCRVLModel {
 
         // Get text embeddings
         let mut input_embeds = self.text.embed_tokens(input_ids)?;
-        let hidden_dim = self.text.hidden_size;
 
         // Encode video frames through vision encoder
         // The vision encoder treats video frames similarly to batched images
@@ -765,13 +817,10 @@ impl PaddleOCRVLModel {
                 )));
             }
 
-            for batch in 0..batch_size {
-                for (offset, pos) in (start..end).enumerate() {
-                    let emb = video_embeds.i(offset)?.unsqueeze(0)?.unsqueeze(0)?;
-                    input_embeds = input_embeds
-                        .slice_assign(&[batch..batch + 1, pos..pos + 1, 0..hidden_dim], &emb)?;
-                }
-            }
+            let assignments: Vec<(usize, usize, &Tensor)> = (0..batch_size)
+                .map(|batch| (batch, start, &video_embeds))
+                .collect();
+            input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
         }
 
         // Compute temporal scaling parameters for M-RoPE
@@ -858,10 +907,7 @@ impl PaddleOCRVLModel {
         let logits =
             self.forward_video(&current_ids, pixel_values_video, video_grid_thw, fps, 0)?;
         let logits = apply_repetition_penalty(&logits, &generated_tokens, repetition_penalty)?;
-        let next_token = logits
-            .argmax(D::Minus1)?
-            .to_dtype(DType::U32)?
-            .to_vec1::<u32>()?[0];
+        let next_token = greedy_argmax_token(&logits)?;
 
         generated_tokens.push(next_token);
 
@@ -876,10 +922,7 @@ impl PaddleOCRVLModel {
         for _ in 1..max_new_tokens {
             let logits = self.forward(&current_ids, None, None, seqlen_offset)?;
             let logits = apply_repetition_penalty(&logits, &generated_tokens, repetition_penalty)?;
-            let next_token = logits
-                .argmax(D::Minus1)?
-                .to_dtype(DType::U32)?
-                .to_vec1::<u32>()?[0];
+            let next_token = greedy_argmax_token(&logits)?;
 
             generated_tokens.push(next_token);
 
@@ -924,8 +967,6 @@ impl PaddleOCRVLModel {
             "input_embeds_before_merge".to_string(),
             input_embeds.clone(),
         );
-        let hidden_dim = self.text.hidden_size;
-
         // Step 2: Encode images
         let image_embeds = self.encode_image(pixel_values, grid_thw)?;
         let image_embeds = image_embeds.to_dtype(self.dtype)?;
@@ -938,22 +979,34 @@ impl PaddleOCRVLModel {
         let merged_grid_w = (grid_thw_vec[2] as usize) / spatial_merge_size;
 
         // Step 3: Merge vision embeddings into text embeddings
-        let input_ids_flat = input_ids.flatten_all()?;
-        let input_ids_vec = input_ids_flat.to_vec1::<u32>()?;
-        let mut image_offset = 0usize;
+        let input_ids_vec = input_ids.flatten_all()?.to_vec1::<u32>()?;
+        let ranges_per_batch = find_contiguous_token_ranges_per_batch(
+            &input_ids_vec,
+            batch_size,
+            seq_len,
+            self.image_token_id,
+        );
+        let mut assignment_tensors = Vec::new();
+        let mut vision_offset = 0usize;
         let num_image_tokens = image_embeds.dim(0)?;
-
-        for batch in 0..batch_size {
-            for pos in 0..seq_len {
-                let idx = batch * seq_len + pos;
-                if input_ids_vec[idx] == self.image_token_id && image_offset < num_image_tokens {
-                    let img_emb = image_embeds.i(image_offset)?.unsqueeze(0)?.unsqueeze(0)?;
-                    input_embeds = input_embeds
-                        .slice_assign(&[batch..batch + 1, pos..pos + 1, 0..hidden_dim], &img_emb)?;
-                    image_offset += 1;
-                }
+        for (batch, ranges) in ranges_per_batch.iter().enumerate() {
+            for (start, end) in ranges {
+                let len = end - start;
+                let block = image_embeds.narrow(0, vision_offset, len)?;
+                assignment_tensors.push((batch, *start, block));
+                vision_offset += len;
             }
         }
+        if vision_offset != num_image_tokens {
+            candle_core::bail!(
+                "image placeholder count {vision_offset} != vision embeddings {num_image_tokens}"
+            );
+        }
+        let assignments: Vec<(usize, usize, &Tensor)> = assignment_tensors
+            .iter()
+            .map(|(b, s, t)| (*b, *s, t))
+            .collect();
+        input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
         tensors.insert(
             "inputs_embeds_after_merge".to_string(),
             input_embeds.clone(),
@@ -1021,11 +1074,7 @@ impl PaddleOCRVLModel {
         let (logits, prefill_tensors) =
             self.forward_with_decoder_export(input_ids, pixel_values, grid_thw)?;
 
-        let next_token = logits
-            .i((.., logits.dim(1)? - 1, ..))?
-            .argmax(D::Minus1)?
-            .to_dtype(DType::U32)?
-            .to_vec1::<u32>()?[0];
+        let next_token = greedy_argmax_last_seq_token(&logits)?;
 
         let mut step_tensors = prefill_tensors;
         step_tensors.insert("step".to_string(), Tensor::new(&[0i64], &self.device)?);
@@ -1070,11 +1119,7 @@ impl PaddleOCRVLModel {
                 .text
                 .forward_embeds_with_mrope_export(input_embeds, &position_ids)?;
 
-            let next_token = logits
-                .i((.., logits.dim(1)? - 1, ..))?
-                .argmax(D::Minus1)?
-                .to_dtype(DType::U32)?
-                .to_vec1::<u32>()?[0];
+            let next_token = greedy_argmax_last_seq_token(&logits)?;
 
             let mut step_tensors: HashMap<String, Tensor> = decoder_tensors;
             step_tensors.insert(
@@ -1107,5 +1152,36 @@ impl PaddleOCRVLModel {
         }
 
         Ok((generated_tokens, all_tensors))
+    }
+}
+
+#[cfg(test)]
+mod scatter_tests {
+    use super::*;
+    use candle_core::Device;
+
+    #[test]
+    fn scatter_vision_blocks_writes_contiguous_span() {
+        let device = Device::Cpu;
+        let input = Tensor::from_vec(vec![1.0f32; 2 * 3 * 4], (1, 3, 4), &device).unwrap();
+        let vision = Tensor::from_vec(
+            vec![
+                10.0, 11.0, 12.0, 13.0, 20.0, 21.0, 22.0, 23.0,
+            ],
+            (2, 4),
+            &device,
+        )
+        .unwrap();
+        let out = scatter_vision_blocks(&input, &[(0, 1, &vision)]).unwrap();
+        let rows = out.to_vec3::<f32>().unwrap();
+        assert_eq!(rows[0][0], [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(rows[0][1], [10.0, 11.0, 12.0, 13.0]);
+        assert_eq!(rows[0][2], [20.0, 21.0, 22.0, 23.0]);
+    }
+
+    #[test]
+    fn find_contiguous_token_ranges_groups_spans() {
+        let ids = vec![0, 5, 5, 5, 1, 5, 2];
+        assert_eq!(find_contiguous_token_ranges(&ids, 5), vec![(1, 4), (5, 6)]);
     }
 }
