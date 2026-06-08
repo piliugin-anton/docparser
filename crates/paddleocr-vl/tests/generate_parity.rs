@@ -40,7 +40,7 @@ fn generate_ocr_demo2_matches_golden() {
     let max_new = golden["max_new_tokens"].as_u64().unwrap() as usize;
     let expected_text = golden["text"].as_str().expect("text");
 
-    let device = candle_core::Device::Cpu;
+    let device = docparser_candle_utils::device_from_env().unwrap_or(candle_core::Device::Cpu);
     let vlm = VlmModel::from_dir(&model_dir, device).expect("load vlm");
     let rgb = image::open(&image_path).unwrap().to_rgb8();
     let tokens = vlm

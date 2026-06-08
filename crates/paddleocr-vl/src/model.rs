@@ -8,7 +8,7 @@ use image::RgbImage;
 use crate::paddleocr_vl::PaddleOCRVLModel;
 use crate::preprocess::eos_token_id;
 use crate::processor::VlmProcessor;
-use crate::{Result, VlmError, VlmTask};
+use crate::{Result, VlmConfig, VlmError, VlmTask};
 
 pub struct VlmRunner {
     model: PaddleOCRVLModel,
@@ -20,7 +20,8 @@ pub struct VlmRunner {
 impl VlmRunner {
     pub fn load(model_dir: &Path, device: Device) -> Result<Self> {
         let processor = VlmProcessor::from_dir(model_dir)?;
-        let dtype = DType::F32;
+        let config = VlmConfig::from_dir(model_dir)?;
+        let dtype = config.inference_dtype_for_device(&device)?;
         let vb = docparser_candle_utils::var_builder_from_safetensors(model_dir, dtype, &device)?;
         let model = PaddleOCRVLModel::new(&processor.model_config, vb)?;
         Ok(Self {

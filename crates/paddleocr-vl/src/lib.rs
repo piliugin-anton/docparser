@@ -4,7 +4,7 @@ use std::path::Path;
 
 mod error;
 
-use candle_core::Device;
+use candle_core::{DType, Device};
 use docparser_candle_utils::LazyRunner;
 pub use error::{Result, VlmError};
 use image::{DynamicImage, RgbImage};
@@ -96,6 +96,42 @@ impl VlmConfig {
             vocab_size: root.vocab_size,
             torch_dtype: root.torch_dtype,
         })
+    }
+
+    /// Candle dtype from HF `torch_dtype` (e.g. `bfloat16` → [`DType::BF16`]).
+    pub fn inference_dtype(&self) -> Result<DType> {
+        inference_dtype_from_torch_str(&self.torch_dtype)
+    }
+
+    /// Dtype for load/inference on `device`.
+    ///
+    /// GPU backends use the checkpoint dtype (typically BF16). CPU falls back to F32 because
+    /// Candle CPU matmul does not support BF16 in this workspace.
+    pub fn inference_dtype_for_device(&self, device: &Device) -> Result<DType> {
+        let checkpoint_dtype = self.inference_dtype()?;
+        if matches!(device, Device::Cpu) {
+            if checkpoint_dtype != DType::F32 {
+                tracing::info!(
+                    torch_dtype = %self.torch_dtype,
+                    "VLM using F32 on CPU; use a GPU BACKEND for native {checkpoint_dtype:?} weights"
+                );
+            }
+            Ok(DType::F32)
+        } else {
+            Ok(checkpoint_dtype)
+        }
+    }
+}
+
+/// Map HuggingFace `torch_dtype` strings to Candle [`DType`] for safetensors load.
+pub fn inference_dtype_from_torch_str(torch_dtype: &str) -> Result<DType> {
+    match torch_dtype.trim().to_ascii_lowercase().as_str() {
+        "bfloat16" | "bf16" => Ok(DType::BF16),
+        "float16" | "fp16" | "half" => Ok(DType::F16),
+        "float32" | "fp32" => Ok(DType::F32),
+        other => Err(VlmError::Message(format!(
+            "unsupported torch_dtype={other:?}; expected bfloat16, float16, or float32"
+        ))),
     }
 }
 

@@ -1,10 +1,24 @@
 use std::path::{Path, PathBuf};
 
 use docparser_test_utils::load_golden_rel;
-use paddleocr_vl::{VlmConfig, list_safetensor_keys};
+use candle_core::DType;
+use paddleocr_vl::{VlmConfig, inference_dtype_from_torch_str, list_safetensor_keys};
 
 fn vlm_dir() -> PathBuf {
     docparser_test_utils::workspace_root().join("models/PaddleOCR-VL-1.6")
+}
+
+#[test]
+fn inference_dtype_maps_torch_dtype_strings() {
+    assert_eq!(
+        inference_dtype_from_torch_str("bfloat16").unwrap(),
+        DType::BF16
+    );
+    assert_eq!(
+        inference_dtype_from_torch_str("float32").unwrap(),
+        DType::F32
+    );
+    assert!(inference_dtype_from_torch_str("float8").is_err());
 }
 
 #[test]
