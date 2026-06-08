@@ -42,21 +42,25 @@ use vision::VisionModel;
 pub type GenerateDebugOutput = (Vec<u32>, Vec<std::collections::HashMap<String, Tensor>>);
 
 fn greedy_argmax_token(logits: &Tensor) -> Result<u32> {
-    logits
+    // `forward_embeds_with_mrope` returns last-token logits `(batch, vocab)`, so argmax
+    // is rank-1 `(batch,)`, not a scalar — use vec1 like the pre-optimization path.
+    Ok(logits
         .argmax(D::Minus1)?
         .to_dtype(DType::U32)?
         .flatten_all()?
-        .to_scalar::<u32>()
+        .to_vec1::<u32>()?
+        [0])
 }
 
 fn greedy_argmax_last_seq_token(logits: &Tensor) -> Result<u32> {
     let seq_len = logits.dim(1)?;
-    logits
+    Ok(logits
         .i((.., seq_len - 1, ..))?
         .argmax(D::Minus1)?
         .to_dtype(DType::U32)?
         .flatten_all()?
-        .to_scalar::<u32>()
+        .to_vec1::<u32>()?
+        [0])
 }
 
 /// Contiguous `(start, end)` spans of `token_id` in a flattened batch-major `input_ids` slice.
@@ -99,60 +103,66 @@ fn find_contiguous_token_ranges_per_batch(
     per_batch
 }
 
-/// Scatter vision embedding rows into `input_embeds` in one flatten/copy pass.
+/// Inject vision embedding rows into `input_embeds` on-device.
 ///
 /// Each assignment writes `embeddings` `(num_tokens, hidden)` at
-/// `input_embeds[batch, start..start + num_tokens, :]`.
-fn scatter_vision_blocks(
+/// `input_embeds[batch, start..start + num_tokens, :]`. Rebuilds the affected
+/// sequence row via `narrow` + `cat` so data never round-trips through the host.
+fn inject_vision_blocks(
     input_embeds: &Tensor,
     assignments: &[(usize, usize, &Tensor)],
 ) -> Result<Tensor> {
     let (batch_size, seq_len, hidden) = input_embeds.dims3()?;
     let dtype = input_embeds.dtype();
-    let device = input_embeds.device();
-
-    let mut flat = input_embeds
-        .to_dtype(DType::F32)?
-        .flatten_all()?
-        .to_vec1::<f32>()?;
+    let mut out = input_embeds.clone();
 
     for &(batch, start, embeds) in assignments {
         let num_tokens = embeds.dim(0)?;
         let embed_hidden = embeds.dim(1)?;
         if embed_hidden != hidden {
             candle_core::bail!(
-                "scatter_vision_blocks: hidden mismatch (expected {hidden}, got {embed_hidden})"
+                "inject_vision_blocks: hidden mismatch (expected {hidden}, got {embed_hidden})"
             );
         }
         if batch >= batch_size {
-            candle_core::bail!("scatter_vision_blocks: batch index {batch} out of range");
+            candle_core::bail!("inject_vision_blocks: batch index {batch} out of range");
         }
         if start + num_tokens > seq_len {
             candle_core::bail!(
-                "scatter_vision_blocks: token span {}..{} exceeds seq_len {seq_len}",
+                "inject_vision_blocks: token span {}..{} exceeds seq_len {seq_len}",
                 start,
                 start + num_tokens
             );
         }
 
-        let vision = embeds.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
-        let expected = num_tokens * hidden;
-        if vision.len() != expected {
-            candle_core::bail!(
-                "scatter_vision_blocks: vision buffer len {} != expected {expected}",
-                vision.len()
-            );
+        let vision = embeds.to_dtype(dtype)?.contiguous()?;
+        let row = out.i(batch)?;
+        let mut parts = Vec::with_capacity(3);
+        if start > 0 {
+            parts.push(row.narrow(0, 0, start)?);
         }
+        parts.push(vision);
+        if start + num_tokens < seq_len {
+            parts.push(row.narrow(0, start + num_tokens, seq_len - start - num_tokens)?);
+        }
+        let new_row = Tensor::cat(parts.as_slice(), 0)?;
 
-        for t in 0..num_tokens {
-            let row = batch * seq_len + start + t;
-            let dst = row * hidden;
-            let src = t * hidden;
-            flat[dst..dst + hidden].copy_from_slice(&vision[src..src + hidden]);
+        if batch_size == 1 {
+            out = new_row.unsqueeze(0)?;
+        } else {
+            let mut rows = Vec::with_capacity(batch_size);
+            for b in 0..batch_size {
+                rows.push(if b == batch {
+                    new_row.clone()
+                } else {
+                    out.i(b)?
+                });
+            }
+            out = Tensor::stack(&rows, 0)?;
         }
     }
 
-    Tensor::from_vec(flat, (batch_size, seq_len, hidden), device)?.to_dtype(dtype)
+    Ok(out)
 }
 
 /// PaddleOCR-VL Model for vision-language OCR tasks.
@@ -334,7 +344,7 @@ impl PaddleOCRVLModel {
                 .iter()
                 .map(|(b, s, t)| (*b, *s, t))
                 .collect();
-            input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
+            input_embeds = inject_vision_blocks(&input_embeds, &assignments)?;
 
             // Use M-RoPE with 3D position IDs for prefill with vision tokens
             let position_ids = compute_mrope_position_ids(
@@ -459,7 +469,7 @@ impl PaddleOCRVLModel {
                 assignments.push((batch, *start, embeddings));
             }
         }
-        input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
+        input_embeds = inject_vision_blocks(&input_embeds, &assignments)?;
 
         // Compute M-RoPE position IDs for multi-image input
         let position_ids = compute_mrope_position_ids_multi(
@@ -551,7 +561,7 @@ impl PaddleOCRVLModel {
                 assignments.push((batch, *start, embeddings));
             }
         }
-        input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
+        input_embeds = inject_vision_blocks(&input_embeds, &assignments)?;
 
         // Compute M-RoPE position IDs for multi-image input
         let position_ids = compute_mrope_position_ids_multi(
@@ -820,7 +830,7 @@ impl PaddleOCRVLModel {
             let assignments: Vec<(usize, usize, &Tensor)> = (0..batch_size)
                 .map(|batch| (batch, start, &video_embeds))
                 .collect();
-            input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
+            input_embeds = inject_vision_blocks(&input_embeds, &assignments)?;
         }
 
         // Compute temporal scaling parameters for M-RoPE
@@ -1006,7 +1016,7 @@ impl PaddleOCRVLModel {
             .iter()
             .map(|(b, s, t)| (*b, *s, t))
             .collect();
-        input_embeds = scatter_vision_blocks(&input_embeds, &assignments)?;
+        input_embeds = inject_vision_blocks(&input_embeds, &assignments)?;
         tensors.insert(
             "inputs_embeds_after_merge".to_string(),
             input_embeds.clone(),
@@ -1156,12 +1166,12 @@ impl PaddleOCRVLModel {
 }
 
 #[cfg(test)]
-mod scatter_tests {
+mod inject_vision_tests {
     use super::*;
     use candle_core::Device;
 
     #[test]
-    fn scatter_vision_blocks_writes_contiguous_span() {
+    fn inject_vision_blocks_writes_contiguous_span() {
         let device = Device::Cpu;
         let input = Tensor::from_vec(vec![1.0f32; 2 * 3 * 4], (1, 3, 4), &device).unwrap();
         let vision = Tensor::from_vec(
@@ -1172,7 +1182,7 @@ mod scatter_tests {
             &device,
         )
         .unwrap();
-        let out = scatter_vision_blocks(&input, &[(0, 1, &vision)]).unwrap();
+        let out = inject_vision_blocks(&input, &[(0, 1, &vision)]).unwrap();
         let rows = out.to_vec3::<f32>().unwrap();
         assert_eq!(rows[0][0], [1.0, 1.0, 1.0, 1.0]);
         assert_eq!(rows[0][1], [10.0, 11.0, 12.0, 13.0]);

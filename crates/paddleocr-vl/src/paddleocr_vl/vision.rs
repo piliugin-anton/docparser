@@ -551,8 +551,11 @@ impl VisionAttention {
             };
 
             chunk_out = chunk_out.squeeze(0)?.transpose(0, 1)?;
-            // Synchronize GPU before CPU accesses tensor data (critical for Metal correctness)
-            chunk_out.device().synchronize()?;
+            // Metal needs an explicit sync before some reshape/contiguous paths; CUDA/CPU do not.
+            #[cfg(feature = "metal")]
+            if matches!(chunk_out.device(), Device::Metal(_)) {
+                chunk_out.device().synchronize()?;
+            }
             chunk_out = chunk_out.reshape((len, self.num_heads * self.head_dim))?;
             outputs.push(chunk_out.to_dtype(xs.dtype())?);
         }
