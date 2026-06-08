@@ -7,6 +7,9 @@ description = "Document orientation and unwarping models (Candle + safetensors)"
 
 [features]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "docparser-candle-utils/mkl"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "docparser-candle-utils/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal", "docparser-candle-utils/metal"]
+wgpu = ["candle-core/wgpu", "candle-nn/wgpu", "docparser-candle-utils/wgpu"]
 
 [dependencies]
 thiserror = "2"

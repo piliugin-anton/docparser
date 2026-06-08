@@ -17,8 +17,8 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-candle-core = { version = "0.10", default-features = true }
-candle-nn = { version = "0.10" }
+candle-core = { git = "ssh://git@github.com/piliugin-anton/candle-intel-iris.git" }
+candle-nn = { git = "ssh://git@github.com/piliugin-anton/candle-intel-iris.git" }
 
 # Inference-heavy binaries: LTO + single codegen unit for hotter CPU kernels.
 [profile.release]

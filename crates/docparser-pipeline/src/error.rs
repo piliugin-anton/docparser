@@ -22,6 +22,8 @@ pub enum PipelineError {
     InferenceQueueFull,
     #[error("inference worker is unavailable")]
     InferenceWorkerUnavailable,
+    #[error("device error: {0}")]
+    Device(#[from] docparser_candle_utils::CandleUtilsError),
     #[error("{0}")]
     Message(String),
 }

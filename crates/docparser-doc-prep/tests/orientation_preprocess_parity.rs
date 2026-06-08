@@ -62,7 +62,7 @@ fn doc_ori_classify_and_logits_match_golden() {
         .collect();
     let atol = golden["logits_atol"].as_f64().unwrap() as f32;
 
-    let model = DocOrientationModel::from_dir(&model_dir).expect("load");
+    let model = DocOrientationModel::from_dir(&model_dir, Device::Cpu).expect("load");
     let rgb = image::open(&fixture).expect("open").to_rgb8();
     let (angle, score) = model.classify(&rgb).expect("classify");
     assert_eq!(angle, expected_angle);

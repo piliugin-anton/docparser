@@ -21,8 +21,7 @@ pub struct LayoutRunner {
 }
 
 impl LayoutRunner {
-    pub fn load(model_dir: &Path, detection_threshold: f32) -> Result<Self> {
-        let device = Device::Cpu;
+    pub fn load(model_dir: &Path, detection_threshold: f32, device: Device) -> Result<Self> {
         let cfg = PpDocLayoutV3Config::from_dir(model_dir)?;
         let model = PpDocLayoutV3ForObjectDetection::load(model_dir, &device)
             .map_err(LayoutError::Candle)?;

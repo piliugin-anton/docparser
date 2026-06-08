@@ -18,8 +18,7 @@ pub struct DocOrientationRunner {
 }
 
 impl DocOrientationRunner {
-    pub fn load(model_dir: &Path) -> Result<Self> {
-        let device = Device::Cpu;
+    pub fn load(model_dir: &Path, device: Device) -> Result<Self> {
         let config = PpLcnetConfig::from_dir(model_dir)?;
         let preprocessor = PreprocessorConfig::from_dir(model_dir)?;
         let vb =
@@ -64,29 +63,40 @@ impl DocOrientationRunner {
 }
 
 pub struct DocOrientationModel {
+    device: Device,
     runner: LazyRunner<DocOrientationRunner>,
 }
 
 impl DocOrientationModel {
-    pub fn from_dir(model_dir: impl AsRef<Path>) -> Result<Self> {
+    pub fn from_dir(model_dir: impl AsRef<Path>, device: Device) -> Result<Self> {
         Ok(Self {
+            device,
             runner: LazyRunner::new(model_dir.as_ref().to_path_buf()),
         })
     }
 
     pub fn classify(&self, image: &RgbImage) -> Result<(u32, f32)> {
-        self.runner
-            .with_runner(DocOrientationRunner::load, |r| r.classify(image))
+        let device = self.device.clone();
+        self.runner.with_runner(
+            move |dir| DocOrientationRunner::load(dir, device.clone()),
+            |r| r.classify(image),
+        )
     }
 
     pub fn logits(&self, image: &RgbImage) -> Result<Vec<f32>> {
-        self.runner
-            .with_runner(DocOrientationRunner::load, |r| r.logits(image))
+        let device = self.device.clone();
+        self.runner.with_runner(
+            move |dir| DocOrientationRunner::load(dir, device.clone()),
+            |r| r.logits(image),
+        )
     }
 
     pub fn predict_and_rotate(&self, image: DynamicImage) -> Result<(DynamicImage, u32)> {
-        self.runner
-            .with_runner(DocOrientationRunner::load, |r| r.predict_and_rotate(image))
+        let device = self.device.clone();
+        self.runner.with_runner(
+            move |dir| DocOrientationRunner::load(dir, device.clone()),
+            |r| r.predict_and_rotate(image),
+        )
     }
 }
 

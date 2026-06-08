@@ -16,8 +16,7 @@ pub struct UvdocRunner {
 }
 
 impl UvdocRunner {
-    pub fn load(model_dir: &Path) -> Result<Self> {
-        let device = Device::Cpu;
+    pub fn load(model_dir: &Path, device: Device) -> Result<Self> {
         let config = UvdocConfig::from_dir(model_dir)?;
         let preprocessor = PreprocessorConfig::from_dir(model_dir)?;
         let vb =
@@ -65,23 +64,31 @@ fn tensor_bgr_to_rgb(out: &Tensor) -> Result<RgbImage> {
 }
 
 pub struct UvdocModel {
+    device: Device,
     runner: LazyRunner<UvdocRunner>,
 }
 
 impl UvdocModel {
-    pub fn from_dir(model_dir: impl AsRef<Path>) -> Result<Self> {
+    pub fn from_dir(model_dir: impl AsRef<Path>, device: Device) -> Result<Self> {
         Ok(Self {
+            device,
             runner: LazyRunner::new(model_dir.as_ref().to_path_buf()),
         })
     }
 
     pub fn rectify(&self, image: &RgbImage) -> Result<RgbImage> {
-        self.runner
-            .with_runner(UvdocRunner::load, |r| r.rectify(image))
+        let device = self.device.clone();
+        self.runner.with_runner(
+            move |dir| UvdocRunner::load(dir, device.clone()),
+            |r| r.rectify(image),
+        )
     }
 
     pub fn forward_flow(&self, image: &RgbImage) -> Result<candle_core::Tensor> {
-        self.runner
-            .with_runner(UvdocRunner::load, |r| r.forward_flow(image))
+        let device = self.device.clone();
+        self.runner.with_runner(
+            move |dir| UvdocRunner::load(dir, device.clone()),
+            |r| r.forward_flow(image),
+        )
     }
 }

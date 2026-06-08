@@ -3,12 +3,14 @@
 #![allow(unsafe_code)] // mmap safetensors in var_builder_from_safetensors
 
 pub mod batch_norm;
+pub mod device;
 mod error;
 pub mod json_config;
 pub mod lazy_runner;
 
 use std::path::Path;
 
+pub use device::{BackendKind, backend_from_env, device_from_env, device_label, resolve_device};
 pub use json_config::{parse_id2label, read_json_file, read_json_from_dir};
 pub use lazy_runner::{LazyRunner, LazyRunnerAccessError};
 

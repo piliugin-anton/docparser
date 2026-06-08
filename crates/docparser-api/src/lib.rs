@@ -69,7 +69,11 @@ pub async fn run(config: ApiConfig) -> Result<()> {
     .await
     .context("model load task panicked")??;
 
-    info!("models loaded from {}", config.models_dir.display());
+    info!(
+        "models loaded from {} (inference backend: {})",
+        config.models_dir.display(),
+        pipeline.device_name()
+    );
 
     let state = AppState::new(pipeline, config.inference_queue_depth);
     let app = build_router(state, config.max_upload_mb * 1024 * 1024);

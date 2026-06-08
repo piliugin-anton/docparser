@@ -9,6 +9,7 @@ Flow: document orientation → geometric unwarping → layout detection → regi
 - Rust 1.75+
 - ~2.15 GB disk for model weights
 - 4 GB+ RAM recommended (CPU inference)
+- **GPU inference (optional):** enable a compile-time feature and set `BACKEND` at runtime (see below). CUDA requires the [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) (`nvcc`) on Linux; Metal requires Xcode on macOS.
 
 ## Setup
 
@@ -101,6 +102,34 @@ source scripts/mkl-env.sh && cargo run -p docparser-api --release --features mkl
 
 The feature is forwarded through `docparser-pipeline` → `paddleocr-vl`, `pp-doclayout-v3`, `docparser-doc-prep`, and `docparser-candle-utils`. Without `--features mkl`, inference uses Candle’s default CPU backend (no MKL required).
 
+### Inference backend (`BACKEND`)
+
+Default build is CPU-only. Enable a GPU backend at **compile time**, then select it at **runtime** via `BACKEND` (read at pipeline startup):
+
+| Cargo feature | `BACKEND` values | Requirements |
+|---------------|------------------|--------------|
+| (none) | `cpu`, `auto` → CPU | — |
+| `cuda` | `cuda`, `auto` | NVIDIA CUDA toolkit |
+| `metal` | `metal`, `auto` | macOS + Xcode |
+| `wgpu` | `wgpu`, `auto` | Vulkan/Metal/DX12 adapter |
+
+| `BACKEND` | Behavior |
+|-----------|----------|
+| *(unset)* | `auto` when built with a GPU feature; otherwise `cpu` |
+| `cpu` | Force CPU |
+| `cuda` | NVIDIA GPU (`CUDA_DEVICE`, default `0`) |
+| `metal` | Apple GPU (`METAL_DEVICE`, default `0`) |
+| `wgpu` | Cross-platform GPU via wgpu |
+| `auto` | First **compiled** backend: cuda → metal → wgpu → cpu |
+
+```bash
+cargo build -p docparser-api --release --features cuda
+BACKEND=cuda CUDA_DEVICE=0 cargo run -p docparser-api --release --features cuda
+
+cargo build -p docparser-api --release --features wgpu
+cargo run -p docparser-api --release --features wgpu
+```
+
 ```bash
 cargo run -p docparser-api
 ```
@@ -173,6 +202,9 @@ python tools/parity_gen.py --update-goldens --layout --vlm --doc-prep
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `BACKEND` | *(unset → `auto` or `cpu`)* | Candle device: `cpu`, `cuda`, `metal`, `wgpu`, or `auto` |
+| `CUDA_DEVICE` | `0` | GPU ordinal when `BACKEND=cuda` or `auto` |
+| `METAL_DEVICE` | `0` | GPU ordinal when `BACKEND=metal` or `auto` |
 | `BIND_ADDR` | `0.0.0.0:8080` | HTTP listen address |
 | `MODELS_DIR` | `models` | Model artifacts root |
 | `MAX_UPLOAD_MB` | `20` | Upload size limit |

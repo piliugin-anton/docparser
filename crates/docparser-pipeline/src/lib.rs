@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use candle_core::Device;
+use docparser_candle_utils::{device_from_env, device_label};
 use image::{DynamicImage, GenericImageView, RgbImage};
 use paddleocr_vl::{VlmModel, should_run_vlm_for_label, task_for_layout_label};
 use pp_doclayout_v3::LayoutModel;
@@ -142,6 +143,7 @@ pub struct DocumentPipeline {
     vlm: VlmModel,
     doc_prep: DocPreprocessor,
     config: PipelineConfig,
+    device: Device,
     vl_model_name: String,
     layout_model_name: String,
     non_merge_labels: Vec<String>,
@@ -155,13 +157,26 @@ impl DocumentPipeline {
     }
 
     pub fn from_paths(paths: &ModelPaths, config: PipelineConfig) -> Result<Self> {
-        let device = Device::Cpu;
-        let vlm = VlmModel::from_dir(&paths.vlm, device)?;
-        let layout = LayoutModel::from_dir_with_threshold(&paths.layout, config.layout_threshold)?;
+        let device = device_from_env()?;
+        Self::from_paths_with_device(paths, config, device)
+    }
+
+    pub fn from_paths_with_device(
+        paths: &ModelPaths,
+        config: PipelineConfig,
+        device: Device,
+    ) -> Result<Self> {
+        let vlm = VlmModel::from_dir(&paths.vlm, device.clone())?;
+        let layout = LayoutModel::from_dir_with_threshold(
+            &paths.layout,
+            config.layout_threshold,
+            device.clone(),
+        )?;
         let doc_prep = DocPreprocessor::from_model_dirs(
             Some(&paths.doc_ori),
             Some(&paths.uvdoc),
             &config.doc_preprocess,
+            device.clone(),
         )?;
 
         let non_merge_labels = non_merge_labels(
@@ -178,9 +193,18 @@ impl DocumentPipeline {
             vlm,
             doc_prep,
             config,
+            device,
             non_merge_labels,
             markdown_ignore_set,
         })
+    }
+
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    pub fn device_name(&self) -> &'static str {
+        device_label(&self.device)
     }
 
     /// Load VLM + layout from explicit dirs (doc prep models resolved from sibling paths when present).
@@ -312,7 +336,7 @@ impl DocumentPipeline {
                 vl_model: self.vl_model_name.clone(),
                 layout_model: self.layout_model_name.clone(),
                 processing_ms: started.elapsed().as_millis() as u64,
-                device: "cpu".into(),
+                device: self.device_name().into(),
                 pipeline_version: PipelineConfig::PIPELINE_VERSION.into(),
             },
         })

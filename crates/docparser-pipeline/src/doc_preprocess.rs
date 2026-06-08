@@ -1,5 +1,6 @@
 //! Document preprocessor: orientation classification then geometric unwarping.
 
+use candle_core::Device;
 use docparser_doc_prep::orientation::DocOrientationModel;
 use docparser_doc_prep::unwarp::UvdocModel;
 use image::DynamicImage;
@@ -32,10 +33,12 @@ impl DocPreprocessor {
         doc_ori_dir: Option<&std::path::Path>,
         uvdoc_dir: Option<&std::path::Path>,
         cfg: &DocPreprocessorConfig,
+        device: Device,
     ) -> Result<Self> {
         let orientation = if cfg.use_orientation {
             Some(DocOrientationModel::from_dir(
                 doc_ori_dir.ok_or(PipelineError::MissingDocOriPath)?,
+                device.clone(),
             )?)
         } else {
             None
@@ -43,6 +46,7 @@ impl DocPreprocessor {
         let unwarping = if cfg.use_unwarping {
             Some(UvdocModel::from_dir(
                 uvdoc_dir.ok_or(PipelineError::MissingUvdocPath)?,
+                device,
             )?)
         } else {
             None

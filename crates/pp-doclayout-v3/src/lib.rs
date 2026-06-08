@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 mod error;
 
-use docparser_candle_utils::LazyRunner;
+use candle_core::Device;
+use docparser_candle_utils::{LazyRunner, device_from_env};
 pub use error::{LayoutError, Result};
 use image::RgbImage;
 use serde::{Deserialize, Serialize};
@@ -66,23 +67,27 @@ impl LayoutConfig {
 pub struct LayoutModel {
     model_dir: PathBuf,
     config: LayoutConfig,
+    device: Device,
     runner: LazyRunner<model::LayoutRunner>,
 }
 
 impl LayoutModel {
     pub fn from_dir(model_dir: impl AsRef<Path>) -> Result<Self> {
-        Self::from_dir_with_threshold(model_dir, 0.5)
+        let device = device_from_env()?;
+        Self::from_dir_with_threshold(model_dir, 0.5, device)
     }
 
     pub fn from_dir_with_threshold(
         model_dir: impl AsRef<Path>,
         detection_threshold: f32,
+        device: Device,
     ) -> Result<Self> {
         let model_dir = model_dir.as_ref().to_path_buf();
         let config = LayoutConfig::from_dir(&model_dir, detection_threshold)?;
         Ok(Self {
             model_dir: model_dir.clone(),
             config,
+            device,
             runner: LazyRunner::new(model_dir),
         })
     }
@@ -106,10 +111,13 @@ impl LayoutModel {
     ) -> Result<Vec<LayoutElement>> {
         let t = threshold.unwrap_or(self.config.detection_threshold);
         if (t - self.config.detection_threshold).abs() > f32::EPSILON {
-            return model::LayoutRunner::load(&self.model_dir, t)?.detect(image);
+            return model::LayoutRunner::load(&self.model_dir, t, self.device.clone())?
+                .detect(image);
         }
+        let device = self.device.clone();
+        let threshold = self.config.detection_threshold;
         self.runner.with_runner(
-            |dir| model::LayoutRunner::load(dir, self.config.detection_threshold),
+            move |dir| model::LayoutRunner::load(dir, threshold, device.clone()),
             |r| r.detect(image),
         )
     }

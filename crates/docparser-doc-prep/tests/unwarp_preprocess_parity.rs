@@ -54,7 +54,7 @@ fn uvdoc_flow_corners_match_golden() {
         .join(golden["fixture"].as_str().unwrap());
     let rgb = image::open(&fixture).unwrap().to_rgb8();
 
-    let model = UvdocModel::from_dir(&model_dir).expect("load");
+    let model = UvdocModel::from_dir(&model_dir, Device::Cpu).expect("load");
     let flow = model.forward_flow(&rgb).expect("flow");
     let flow_ch0 = flow.i((0, 0)).expect("ch0").to_vec2::<f32>().unwrap();
     let fh = flow_ch0.len();
@@ -99,7 +99,7 @@ fn uvdoc_rectify_corners_match_golden() {
         .map(|v| v.as_u64().unwrap() as u32)
         .collect();
 
-    let model = UvdocModel::from_dir(&model_dir).expect("load");
+    let model = UvdocModel::from_dir(&model_dir, Device::Cpu).expect("load");
     let rgb = image::open(&fixture).expect("open").to_rgb8();
     let out = model.rectify(&rgb).expect("rectify");
     assert_eq!(out.dimensions(), (expected_size[0], expected_size[1]));

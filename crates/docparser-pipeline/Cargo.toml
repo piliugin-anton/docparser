@@ -10,10 +10,29 @@ mkl = [
     "pp-doclayout-v3/mkl",
     "docparser-doc-prep/mkl",
 ]
+cuda = [
+    "docparser-candle-utils/cuda",
+    "paddleocr-vl/cuda",
+    "pp-doclayout-v3/cuda",
+    "docparser-doc-prep/cuda",
+]
+metal = [
+    "docparser-candle-utils/metal",
+    "paddleocr-vl/metal",
+    "pp-doclayout-v3/metal",
+    "docparser-doc-prep/metal",
+]
+wgpu = [
+    "docparser-candle-utils/wgpu",
+    "paddleocr-vl/wgpu",
+    "pp-doclayout-v3/wgpu",
+    "docparser-doc-prep/wgpu",
+]
 
 [dependencies]
 thiserror = "2"
 candle-core.workspace = true
+docparser-candle-utils = { path = "../docparser-candle-utils" }
 image = "0.25"
 paddleocr-vl = { path = "../paddleocr-vl" }
 pp-doclayout-v3 = { path = "../pp-doclayout-v3" }

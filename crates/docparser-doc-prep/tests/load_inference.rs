@@ -11,8 +11,11 @@ fn doc_orientation_classify_demo() {
         eprintln!("skip: missing {}", ori_dir.display());
         return;
     }
-    let model =
-        docparser_doc_prep::orientation::DocOrientationModel::from_dir(&ori_dir).expect("load ori");
+    let model = docparser_doc_prep::orientation::DocOrientationModel::from_dir(
+        &ori_dir,
+        candle_core::Device::Cpu,
+    )
+    .expect("load ori");
     let img = image::open(fixture("ocr_demo2.jpg")).expect("open");
     let rgb = img.to_rgb8();
     let (angle, score) = model.classify(&rgb).expect("classify");
@@ -30,7 +33,8 @@ fn uvdoc_rectify_demo() {
         eprintln!("skip: missing {}", uv_dir.display());
         return;
     }
-    let model = docparser_doc_prep::unwarp::UvdocModel::from_dir(&uv_dir).expect("load uvdoc");
+    let model = docparser_doc_prep::unwarp::UvdocModel::from_dir(&uv_dir, candle_core::Device::Cpu)
+        .expect("load uvdoc");
     let img = image::open(fixture("ocr_demo2.jpg"))
         .expect("open")
         .to_rgb8();

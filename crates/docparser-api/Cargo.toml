@@ -12,6 +12,9 @@ path = "src/main.rs"
 [features]
 default = []
 mkl = ["docparser-pipeline/mkl", "dep:intel-mkl-src"]
+cuda = ["docparser-pipeline/cuda"]
+metal = ["docparser-pipeline/metal"]
+wgpu = ["docparser-pipeline/wgpu"]
 
 [dependencies]
 anyhow = "1"
