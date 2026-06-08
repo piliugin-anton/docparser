@@ -1103,7 +1103,6 @@ pub struct TextModel {
     norm: RmsNorm,
     lm_head: Linear,
     pub dtype: DType,
-    pub hidden_size: usize,
     device: Device,
 }
 
@@ -1136,7 +1135,6 @@ impl TextModel {
             norm,
             lm_head,
             dtype: vb.dtype(),
-            hidden_size: cfg.hidden_size,
             device: vb.device().clone(),
         })
     }
