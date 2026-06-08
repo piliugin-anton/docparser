@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Instant;
 
 /// Access failure for a [`LazyRunner`] guard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,13 +13,15 @@ pub enum LazyRunnerAccessError {
 
 /// Defers loading `R` until first use; loads from `model_dir` via the provided closure.
 pub struct LazyRunner<R> {
+    label: &'static str,
     model_dir: PathBuf,
     runner: Mutex<Option<R>>,
 }
 
 impl<R> LazyRunner<R> {
-    pub fn new(model_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(label: &'static str, model_dir: impl Into<PathBuf>) -> Self {
         Self {
+            label,
             model_dir: model_dir.into(),
             runner: Mutex::new(None),
         }
@@ -70,7 +73,15 @@ impl<R> LazyRunner<R> {
             .lock()
             .map_err(|_| LazyRunnerAccessError::LockPoisoned)?;
         if guard.is_none() {
-            *guard = Some(load(&self.model_dir)?);
+            let started = Instant::now();
+            let runner = load(&self.model_dir)?;
+            tracing::info!(
+                model = self.label,
+                path = %self.model_dir.display(),
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "lazy-loaded inference model"
+            );
+            *guard = Some(runner);
         }
         Ok(guard)
     }

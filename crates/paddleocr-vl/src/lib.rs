@@ -148,7 +148,7 @@ impl VlmModel {
         Ok(Self {
             config,
             device,
-            runner: LazyRunner::new(model_dir),
+            runner: LazyRunner::new("vlm", model_dir),
         })
     }
 

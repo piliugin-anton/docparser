@@ -111,7 +111,6 @@ Default build is CPU-only. Enable a GPU backend at **compile time**, then select
 | (none) | `cpu`, `auto` → CPU | — |
 | `cuda` | `cuda`, `auto` | NVIDIA CUDA toolkit |
 | `metal` | `metal`, `auto` | macOS + Xcode |
-| `wgpu` | `wgpu`, `auto` | Vulkan/Metal/DX12 adapter |
 
 | `BACKEND` | Behavior |
 |-----------|----------|
@@ -119,15 +118,11 @@ Default build is CPU-only. Enable a GPU backend at **compile time**, then select
 | `cpu` | Force CPU |
 | `cuda` | NVIDIA GPU (`CUDA_DEVICE`, default `0`) |
 | `metal` | Apple GPU (`METAL_DEVICE`, default `0`) |
-| `wgpu` | Cross-platform GPU via wgpu |
-| `auto` | First **compiled** backend: cuda → metal → wgpu → cpu |
+| `auto` | First **compiled** backend: cuda → metal → cpu |
 
 ```bash
 cargo build -p docparser-api --release --features cuda
 BACKEND=cuda CUDA_DEVICE=0 cargo run -p docparser-api --release --features cuda
-
-cargo build -p docparser-api --release --features wgpu
-cargo run -p docparser-api --release --features wgpu
 ```
 
 ```bash
@@ -202,7 +197,7 @@ python tools/parity_gen.py --update-goldens --layout --vlm --doc-prep
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND` | *(unset → `auto` or `cpu`)* | Candle device: `cpu`, `cuda`, `metal`, `wgpu`, or `auto` |
+| `BACKEND` | *(unset → `auto` or `cpu`)* | Candle device: `cpu`, `cuda`, `metal`, or `auto` |
 | `CUDA_DEVICE` | `0` | GPU ordinal when `BACKEND=cuda` or `auto` |
 | `METAL_DEVICE` | `0` | GPU ordinal when `BACKEND=metal` or `auto` |
 | `BIND_ADDR` | `0.0.0.0:8080` | HTTP listen address |

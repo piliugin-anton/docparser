@@ -22,12 +22,6 @@ metal = [
     "pp-doclayout-v3/metal",
     "docparser-doc-prep/metal",
 ]
-wgpu = [
-    "docparser-candle-utils/wgpu",
-    "paddleocr-vl/wgpu",
-    "pp-doclayout-v3/wgpu",
-    "docparser-doc-prep/wgpu",
-]
 
 [dependencies]
 thiserror = "2"

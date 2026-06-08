@@ -70,9 +70,9 @@ pub async fn run(config: ApiConfig) -> Result<()> {
     .context("model load task panicked")??;
 
     info!(
-        "models loaded from {} (inference backend: {})",
+        "pipeline ready (inference backend: {}, models_dir: {})",
+        pipeline.device_name(),
         config.models_dir.display(),
-        pipeline.device_name()
     );
 
     let state = AppState::new(pipeline, config.inference_queue_depth);

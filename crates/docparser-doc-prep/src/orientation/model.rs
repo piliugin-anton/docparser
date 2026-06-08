@@ -71,7 +71,7 @@ impl DocOrientationModel {
     pub fn from_dir(model_dir: impl AsRef<Path>, device: Device) -> Result<Self> {
         Ok(Self {
             device,
-            runner: LazyRunner::new(model_dir.as_ref().to_path_buf()),
+            runner: LazyRunner::new("doc_orientation", model_dir.as_ref().to_path_buf()),
         })
     }
 

@@ -10,7 +10,6 @@ pub enum BackendKind {
     Cpu,
     Cuda,
     Metal,
-    Wgpu,
     Auto,
 }
 
@@ -20,21 +19,20 @@ impl BackendKind {
             "" | "cpu" => Ok(Self::Cpu),
             "cuda" => Ok(Self::Cuda),
             "metal" => Ok(Self::Metal),
-            "wgpu" => Ok(Self::Wgpu),
             "auto" => Ok(Self::Auto),
             other => Err(CandleUtilsError::Message(format!(
-                "invalid BACKEND={other:?}; expected cpu, cuda, metal, wgpu, or auto"
+                "invalid BACKEND={other:?}; expected cpu, cuda, metal, or auto"
             ))),
         }
     }
 }
 
 fn default_backend_kind() -> BackendKind {
-    #[cfg(any(feature = "cuda", feature = "metal", feature = "wgpu"))]
+    #[cfg(any(feature = "cuda", feature = "metal"))]
     {
         BackendKind::Auto
     }
-    #[cfg(not(any(feature = "cuda", feature = "metal", feature = "wgpu")))]
+    #[cfg(not(any(feature = "cuda", feature = "metal")))]
     {
         BackendKind::Cpu
     }
@@ -78,7 +76,6 @@ pub fn resolve_device(kind: BackendKind) -> Result<Device> {
         BackendKind::Cpu => Ok(Device::Cpu),
         BackendKind::Cuda => resolve_cuda(),
         BackendKind::Metal => resolve_metal(),
-        BackendKind::Wgpu => resolve_wgpu(),
         BackendKind::Auto => resolve_auto_device(),
     }
 }
@@ -115,21 +112,6 @@ fn resolve_metal() -> Result<Device> {
     }
 }
 
-fn resolve_wgpu() -> Result<Device> {
-    #[cfg(feature = "wgpu")]
-    {
-        Device::new_wgpu().map_err(|e| {
-            CandleUtilsError::Message(format!(
-                "BACKEND=wgpu, but no wgpu device is available: {e}"
-            ))
-        })
-    }
-    #[cfg(not(feature = "wgpu"))]
-    {
-        Err(backend_not_compiled("wgpu", "wgpu"))
-    }
-}
-
 fn resolve_auto_device() -> Result<Device> {
     #[cfg(feature = "cuda")]
     {
@@ -151,15 +133,6 @@ fn resolve_auto_device() -> Result<Device> {
         }
     }
 
-    #[cfg(feature = "wgpu")]
-    if candle_core::utils::wgpu_is_available() {
-        return Device::new_wgpu().map_err(|e| {
-            CandleUtilsError::Message(format!(
-                "BACKEND=auto, wgpu adapter probe succeeded but device init failed: {e}"
-            ))
-        });
-    }
-
     Ok(Device::Cpu)
 }
 
@@ -169,8 +142,6 @@ pub fn device_label(device: &Device) -> &'static str {
         Device::Cpu => "cpu",
         Device::Cuda(_) => "cuda",
         Device::Metal(_) => "metal",
-        #[cfg(feature = "wgpu")]
-        Device::Wgpu(_) => "wgpu",
     }
 }
 
@@ -183,9 +154,9 @@ mod tests {
         assert_eq!(BackendKind::parse("cpu").unwrap(), BackendKind::Cpu);
         assert_eq!(BackendKind::parse("CUDA").unwrap(), BackendKind::Cuda);
         assert_eq!(BackendKind::parse("metal").unwrap(), BackendKind::Metal);
-        assert_eq!(BackendKind::parse("wgpu").unwrap(), BackendKind::Wgpu);
         assert_eq!(BackendKind::parse("auto").unwrap(), BackendKind::Auto);
         assert!(BackendKind::parse("opencl").is_err());
+        assert!(BackendKind::parse("wgpu").is_err());
     }
 
     #[test]
@@ -196,15 +167,15 @@ mod tests {
 
     #[test]
     fn default_backend_when_env_missing() {
-        #[cfg(not(any(feature = "cuda", feature = "metal", feature = "wgpu")))]
+        #[cfg(not(any(feature = "cuda", feature = "metal")))]
         assert_eq!(default_backend_kind(), BackendKind::Cpu);
-        #[cfg(any(feature = "cuda", feature = "metal", feature = "wgpu"))]
+        #[cfg(any(feature = "cuda", feature = "metal"))]
         assert_eq!(default_backend_kind(), BackendKind::Auto);
     }
 
     #[test]
     fn resolve_auto_backend_without_gpu_features() {
-        #[cfg(not(any(feature = "cuda", feature = "metal", feature = "wgpu")))]
+        #[cfg(not(any(feature = "cuda", feature = "metal")))]
         {
             let device = resolve_device(BackendKind::Auto).unwrap();
             assert_eq!(device_label(&device), "cpu");
@@ -213,12 +184,12 @@ mod tests {
 
     #[test]
     fn resolve_auto_backend_with_gpu_features() {
-        #[cfg(any(feature = "cuda", feature = "metal", feature = "wgpu"))]
+        #[cfg(any(feature = "cuda", feature = "metal"))]
         {
             let device = resolve_device(BackendKind::Auto).unwrap();
             assert!(matches!(
                 device_label(&device),
-                "cuda" | "metal" | "wgpu" | "cpu"
+                "cuda" | "metal" | "cpu"
             ));
         }
     }
@@ -229,7 +200,5 @@ mod tests {
         assert!(resolve_device(BackendKind::Cuda).is_err());
         #[cfg(not(feature = "metal"))]
         assert!(resolve_device(BackendKind::Metal).is_err());
-        #[cfg(not(feature = "wgpu"))]
-        assert!(resolve_device(BackendKind::Wgpu).is_err());
     }
 }

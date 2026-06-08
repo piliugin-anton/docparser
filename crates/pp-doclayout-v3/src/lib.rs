@@ -88,7 +88,7 @@ impl LayoutModel {
             model_dir: model_dir.clone(),
             config,
             device,
-            runner: LazyRunner::new(model_dir),
+            runner: LazyRunner::new("layout", model_dir),
         })
     }
 
